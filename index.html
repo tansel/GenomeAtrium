@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta name="robots" content="noindex, nofollow">
+  <meta charset="utf-8">
+  <title>GenomeAtrium</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    html, body { height: 100%; margin: 0; background: rgb(20,20,20); color: #ddd; overflow: hidden;
+      font: 12px/1.45 Helvetica, Arial, sans-serif; }
+    #maindiv { position: absolute; inset: 0; }
+    .panel { position: absolute; background: rgba(0,0,0,0.55); border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 6px; padding: 10px 12px; backdrop-filter: blur(4px); }
+    #info { top: 12px; left: 12px; max-width: 360px; }
+    #info h1 { font-size: 14px; margin: 0 0 6px; color: #fff; font-weight: 600; letter-spacing: 0.02em; }
+    #info .file { color: #fff; word-break: break-all; }
+    #info .dim, .dim { color: rgba(255,255,255,0.5); }
+    #info .warn { color: rgb(255,190,90); }
+    #legend { margin-top: 8px; display: flex; flex-direction: column; gap: 3px; }
+    #legend label { cursor: pointer; display: flex; align-items: center; gap: 6px; }
+    #legend .sw { width: 14px; height: 3px; border-radius: 2px; display: inline-block; }
+    #tools { top: 12px; right: 12px; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; justify-content: flex-end; max-width: calc(100vw - 420px); }
+    #viewbar { top: 62px; right: 12px; display: flex; gap: 4px; align-items: center; flex-wrap: wrap; justify-content: flex-end; max-width: calc(100vw - 420px); padding: 6px 8px; }
+    #viewbar button { padding: 3px 7px; }
+    #hilbertLayers { top: 112px; right: 12px; display: flex; gap: 6px; }
+    #hilbertLayers[hidden], #hicBar[hidden], #pathBar[hidden] { display: none !important; }
+    #pathBar { top: 112px; right: 12px; display: flex; gap: 10px; align-items: center; }
+    #gwasBox, #ncBox { margin-top: 8px; }
+    .gl { padding: 2px 4px; border-radius: 3px; cursor: pointer; font-size: 11px; } .gl:hover, .gl.on { background: rgba(255,255,255,0.12); }
+    #hicBar { top: 112px; right: 12px; display: flex; gap: 6px; align-items: center; max-width: calc(100vw - 420px); flex-wrap: wrap; }
+    #hicFile { max-width: 280px; }
+    button, input[type=text] { background: rgba(255,255,255,0.08); color: #eee; border: 1px solid rgba(255,255,255,0.2);
+      border-radius: 4px; padding: 4px 8px; font: inherit; }
+    button:hover { background: rgba(255,255,255,0.18); cursor: pointer; }
+    button.on { background: rgba(90,210,190,0.35); border-color: rgba(90,210,190,0.7); }
+    input[type=text] { width: 200px; }
+    #help { bottom: 12px; right: 12px; color: rgba(255,255,255,0.55); }
+    #drop { position: absolute; inset: 0; border: 3px dashed rgba(90,210,190,0.8); display: none; pointer-events: none; }
+    body.dragging #drop { display: block; }
+    #stop { display: none; }
+    #info { max-height: calc(100vh - 80px); overflow-y: auto; }
+    #clinvarNote { margin-top: 8px; }
+    #toggleInfo { cursor: pointer; display: flex; justify-content: space-between; align-items: baseline; }
+    #toggleMark { font-size: 11px; font-weight: normal; }
+    #info.collapsed #summary, #info.collapsed #legend, #info.collapsed #clinvarNote { display: none; }
+    #info.collapsed .fsub { display: none; }
+    #findings { margin-top: 8px; }
+    .fhead { color: #fff; font-weight: 600; margin-bottom: 4px; display: flex; gap: 6px; align-items: center; }
+    .fhead button { padding: 1px 6px; font-size: 11px; margin-left: auto; }
+    .flist { display: flex; flex-direction: column; gap: 2px; }
+    .frow { padding: 3px 5px; border-radius: 4px; cursor: pointer; }
+    .frow:hover { background: rgba(255,255,255,0.1); }
+    .fsub { font-size: 11px; margin-left: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
+    .dot.p { background: rgb(255,70,70); } .dot.lp { background: rgb(255,160,60); }
+    .src { display: inline-block; font-size: 10px; width: 14px; text-align: center; border-radius: 3px; margin-left: 2px;
+      background: rgba(90,210,190,0.35); color: #fff; }
+    .src.nr { background: rgba(230,170,40,0.35); } .src.none { background: none; color: rgba(255,255,255,0.3); border: 1px solid rgba(255,255,255,0.2); }
+    .sev { font-size: 10px; padding: 0 4px; border-radius: 3px; background: rgba(255,255,255,0.12); }
+    .sev.Critical { background: rgb(200,40,40); } .sev.High { background: rgb(190,90,30); }
+    #regulatory { margin-top: 8px; }
+    #samplesBox { margin-top: 8px; }
+    .abar { display: flex; align-items: center; gap: 6px; font-size: 11px; }
+    .abar span.b { height: 8px; background: rgb(120,180,255); border-radius: 2px; }
+    #samplesBox table { border-collapse: collapse; font-size: 11px; } #samplesBox td { padding: 1px 5px; border: 1px solid rgba(255,255,255,0.1); }
+    #tracks { position: absolute; left: 0; right: 0; top: 110px; bottom: 0; background: #141414; }
+    #tracks[hidden], #tracksInfo[hidden] { display: none !important; }
+    body.tracksMode #info > :not(h1), body.viewMode #info:not(.expanded) > :not(h1) { display: none; }
+    body.tracksMode #info { padding-bottom: 4px; }
+    body.tracksMode #maindiv { visibility: hidden; }
+    #xr { position: absolute; inset: 0; background: #101014; }
+    #xr[hidden], #atriumFilters[hidden], #atriumIntro[hidden] { display: none !important; }
+    #atriumIntro { left: 50%; top: 50%; transform: translate(-50%, -50%); max-width: 460px; z-index: 6; display: flex; flex-direction: column; gap: 4px; line-height: 1.4; }
+    #atriumFilters { top: 112px; right: 12px; display: flex; flex-direction: column; gap: 3px; z-index: 4; }
+    #atriumFilters label { cursor: pointer; display: flex; gap: 6px; align-items: center; }
+    body.atriumMode #info > :not(h1) { display: none; }
+    body.atriumMode #maindiv { visibility: hidden; }
+    #tracksInfo { position: absolute; left: 12px; right: 12px; bottom: 8px; font-size: 11px; background: rgba(20,20,20,0.85); padding: 4px 6px; border-radius: 4px; }
+    #palette { top: 112px; left: 50%; transform: translateX(-50%); width: min(560px, calc(100vw - 48px)); z-index: 6; display: flex; flex-direction: column; gap: 6px; }
+    #palette[hidden] { display: none !important; }
+    #paletteInput { width: 100%; box-sizing: border-box; font-size: 14px; padding: 8px 10px; }
+    #paletteList { max-height: 50vh; overflow-y: auto; }
+    .pitem { padding: 4px 8px; border-radius: 4px; cursor: pointer; display: flex; gap: 8px; align-items: baseline; }
+    .pitem.on, .pitem:hover { background: rgba(255,255,255,0.12); }
+    .pkind { font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; color: rgba(255,255,255,0.45); width: 64px; flex: none; }
+    button:disabled { opacity: 0.35; cursor: default; }
+    #gnomadBox { margin-top: 8px; } #gnomadBox label { color: #fff; cursor: pointer; }
+    .af { font-size: 10px; padding: 0 4px; border-radius: 3px; margin-left: 3px; background: rgba(255,255,255,0.12); }
+    .af.novel, .af.ultra { background: rgb(200,50,50); color: #fff; } .af.rare { background: rgb(210,120,40); color: #fff; }
+    .af.common { background: rgba(120,180,255,0.35); } .af.flag { background: rgb(230,200,60); color: #111; }
+    #picker { top: 112px; right: 12px; width: min(520px, calc(100vw - 48px)); max-height: calc(100vh - 150px); display: flex; flex-direction: column; gap: 6px; z-index: 5; }
+    #picker[hidden] { display: none !important; }
+    #pickerList { overflow-y: auto; flex: 1; min-height: 120px; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 4px; }
+    #pickerList .org { color: #fff; margin: 6px 0 2px; font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; }
+    #pickerList label { display: flex; gap: 6px; align-items: center; padding: 1px 2px; cursor: pointer; }
+    #pickerList label:hover { background: rgba(255,255,255,0.08); }
+    .prow { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+    #pickerSearch { flex: 1; min-width: 160px; }
+    select { background: rgba(255,255,255,0.08); color: #eee; border: 1px solid rgba(255,255,255,0.2); border-radius: 4px; padding: 3px; font: inherit; }
+    .rgene { padding: 2px 5px; border-radius: 4px; cursor: pointer; } .rgene:hover { background: rgba(255,255,255,0.1); }
+    .rgene.on { background: rgba(255,255,255,0.16); }
+    .mb { font-size: 10px; padding: 0 3px; border-radius: 3px; margin-left: 3px; border: 1px solid rgba(255,255,255,0.35); }
+    .mb.both { background: rgba(255,255,255,0.25); color: #fff; }
+    .rsw { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 3px; }
+    #info.collapsed #regNote { display: none; }
+  </style>
+</head>
+<body>
+  <div id="gate" style="position:fixed;inset:0;z-index:99;background:#101014;display:flex;align-items:center;justify-content:center;font:14px Helvetica,Arial,sans-serif;color:#ddd">
+    <form id="gateForm" style="display:flex;flex-direction:column;gap:8px;width:240px">
+      <div style="font-size:20px;color:#5ad2be">GenomeAtrium</div>
+      <input id="gateUser" placeholder="user" autocomplete="username" style="padding:6px">
+      <input id="gatePass" type="password" placeholder="password" autocomplete="current-password" style="padding:6px">
+      <button type="submit" style="padding:6px">Enter</button>
+      <div id="gateMsg" style="color:#ff8a7a;min-height:1em"></div>
+    </form>
+  </div>
+  <script>
+  (function () { // a crude gate: keeps casual visitors out, nothing more
+    var H = 'c2093f759d5cf31e73bc38e72049c785dd6ce0a9a983b1b1bf103ab7c6bf9e93', gate = document.getElementById('gate');
+    try { if (sessionStorage.getItem('genomeatrium.gate') === H) { gate.remove(); return; } } catch (e) {}
+    document.getElementById('gateForm').addEventListener('submit', async function (e) {
+      e.preventDefault();
+      var t = document.getElementById('gateUser').value.trim() + ':' + document.getElementById('gatePass').value;
+      var d = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(t));
+      var h = Array.from(new Uint8Array(d)).map(function (b) { return b.toString(16).padStart(2, '0'); }).join('');
+      if (h === H) { try { sessionStorage.setItem('genomeatrium.gate', H); } catch (e2) {} gate.remove(); }
+      else document.getElementById('gateMsg').textContent = 'Not right.';
+    });
+  })();
+  </script>
+
+  <div id="maindiv"></div>
+  <div id="tracks" hidden></div>
+  <div id="xr" hidden></div>
+  <div id="atriumFilters" class="panel" hidden></div>
+  <div id="atriumIntro" class="panel" hidden>
+    <div class="fhead">The Atrium</div>
+    <div>Your genome as a room. The ring is the chromosomes, with variant density hanging below it.</div>
+    <div>Towers are findings, taller with more evidence. The gold band marks runs of homozygosity. Posts on the inner ring are your gene panels, coloured by coverage.</div>
+    <div>Arches overhead are structural variants. The cloud in the middle is the Landscape.</div>
+    <div style="margin-top:6px">Drag to turn, wheel to zoom, hover to read. Click anything to open it in a window, with tabs for every 2D view.</div>
+    <div style="margin-top:8px"><button id="introOk">Got it</button> <button id="introArcs">Open Arcs instead</button></div>
+  </div>
+  <div id="hilbertLayers" class="panel" hidden></div>
+  <div id="pathBar" class="panel" hidden><span class="dim">gene set:</span>
+    <label><input type="checkbox" id="psFindings" checked> findings</label>
+    <label><input type="checkbox" id="psGwas" checked> GWAS trait genes (risk allele carried)</label>
+    <label><input type="checkbox" id="psFocus" checked> gene in focus</label></div>
+  <div id="hicBar" class="panel" hidden>
+    <select id="hicFile"><option>loading ENCODE contact maps...</option></select>
+    <select id="hicNorm"></select>
+    <button id="hicReload" title="Load contacts for the selection, the focused gene, or the region last seen in Arcs">load region</button>
+    <span class="dim" id="hicNote"></span>
+  </div>
+  <div id="tracksInfo" class="dim" hidden></div>
+  <div id="drop"></div>
+
+  <div id="info" class="panel">
+    <h1 id="toggleInfo" title="Show or hide the file details">GenomeAtrium <span class="dim" id="toggleMark">hide details</span></h1>
+    <div id="summary" class="dim">Open or drop a VCF, gVCF or BAM file.</div>
+    <div id="legend"></div>
+    <div id="clinvarNote" class="dim"></div>
+    <div id="gnomadBox"><label title="Frequencies from gnomAD v4 (genomes + exomes). Only 25 kb tile coordinates are sent to gnomad.broadinstitute.org; your alleles and genotypes never leave the page."><input type="checkbox" id="gnomadOn"> gnomAD frequencies</label>
+      <span class="dim" id="gnomadNote">off. When on, the page asks gnomad.broadinstitute.org for 25 kb regions (coordinates only, never your alleles).</span></div>
+    <div id="samplesBox"></div>
+    <div id="gwasBox"><div class="fhead">GWAS <span class="dim" id="gwasNote"></span></div>
+      <input type="text" id="gwasSearch" placeholder="trait: type 2 diabetes, height, LDL..." style="width:100%;box-sizing:border-box">
+      <div id="gwasList"></div></div>
+    <div id="prsBox"><div class="fhead">Polygenic scores <span class="dim">PGS Catalog</span></div>
+      <input type="text" id="prsSearch" placeholder="trait, or a score ID: coronary, PGS000058..." style="width:100%;box-sizing:border-box">
+      <div id="prsResults"></div><div id="prsOut"></div></div>
+    <div id="methylBox"></div>
+    <div id="rohBox"></div>
+    <div id="panelBox"><div class="fhead">Gene panels <span class="dim">PanelApp (England, Australia)</span></div>
+      <input type="text" id="panelSearch" placeholder="panel: cardiomyopathy, epilepsy, hearing loss..." style="width:100%;box-sizing:border-box">
+      <div id="panelResults"></div><div id="panelList"></div></div>
+    <div id="ncBox"></div>
+    <div id="regulatory"><div class="fhead">Regulatory <button id="openPicker">tissues</button></div><div id="regNote" class="dim"></div><div id="regList"></div></div>
+    <div id="findings"></div>
+  </div>
+
+  <div id="tools" class="panel">
+    <button id="open">Open file</button>
+    <button id="navBack" title="Back (Alt+Left)" disabled>&lsaquo;</button>
+    <button id="navFwd" title="Forward (Alt+Right)" disabled>&rsaquo;</button>
+    <button id="bookmark" title="Bookmark this view">&#9734;</button>
+    <button id="openPalette" title="Search genes, regions, findings, bookmarks (Ctrl+K or /)">search</button>
+    <input type="file" id="file" accept=".vcf,.gz,.bgz,.bam" hidden>
+    <button id="stop">Stop reading</button>
+    <input type="text" id="goto" placeholder="gene, or chr1:1,000,000-2,000,000" title="Go to a gene, region or chromosome">
+  </div>
+
+  <div id="picker" class="panel" hidden>
+    <div class="fhead">Tissues and cell types for enhancer-gene links
+      <button id="closePicker">close</button></div>
+    <div class="dim" id="pickerSource"></div>
+    <div class="prow">
+      <input type="text" id="pickerSearch" placeholder="search: liver, T cell, heart, K562...">
+      <select id="pickerClass"><option value="">all types</option><option>tissue</option><option>primary cell</option>
+        <option>cell line</option><option>in vitro differentiated cells</option><option>organoid</option></select>
+    </div>
+    <div class="prow">models:
+      <label><input type="checkbox" id="modelE2g" checked> ENCODE-rE2G</label>
+      <label><input type="checkbox" id="modelAbc"> ABC</label>
+      <span class="dim">both: links predicted by both are marked as agreed</span></div>
+    <div id="pickerChosen" class="dim"></div>
+    <div id="pickerList"></div>
+    <div class="prow"><button id="pickerApply">load selected</button><button id="pickerClear">clear</button>
+      <span class="dim">up to 5 donor sets per biosample are merged; files come from data/regulatory if prefetched, else from ENCODE</span></div>
+  </div>
+
+  <div id="palette" class="panel" hidden>
+    <input type="text" id="paletteInput" placeholder="gene, chr7:117.5M-117.7M, finding, bookmark, tissue, view..." autocomplete="off">
+    <div id="paletteList"></div>
+  </div>
+
+  <div id="viewbar" class="panel">
+    <span class="dim" style="margin-right:4px">view</span>
+    <button id="modeArcs" class="on" title="Genome line with arcs">Arcs</button>
+    <button id="modeTracks" title="Linked tracks drawn with GenomeSpy (WebGL): genes, enhancers, variants, allele fraction, depth ratio">Tracks</button>
+    <button id="modeCircos" title="Circular genome: bands, density and het rings, SV chords, findings">Circos</button>
+    <button id="modeHilbert" title="Whole genome folded into a square (Hilbert curve)">Hilbert</button>
+    <button id="modeProtein" title="Protein lollipop: ClinVar P/LP variants along the protein with Pfam domains, and the sample's findings">Protein</button>
+    <button id="modeGene" title="One gene's regulatory neighbourhood and tissue heatmap">Gene</button>
+    <button id="modeHic" title="Hi-C contacts around the region from an ENCODE contact map, with enhancer links and SVs">Hi-C</button>
+    <button id="modeAtrium" title="The genome as a room (WebXR): ring, arches overhead, findings, landscape in the middle; Enter VR with a headset">Atrium</button>
+    <button id="modePathways" title="Reactome pathways as a treemap, coloured by enrichment of a gene set">Pathways</button>
+    <button id="modeMatrix" title="Window by window similarity matrix">Matrix</button>
+    <button id="mode3d" title="Genome windows in 3D, placed by PCA of their features">Landscape</button>
+  </div>
+
+  <div id="help" class="panel">wheel zoom &middot; drag pan &middot; click a chromosome to open it &middot; double click resets</div>
+
+  <script src="moebio_framework/dist/moebio_framework.js"></script>
+  <script src="src/bgzf.js?v=20261002094634"></script>
+  <script src="src/genome.js?v=20261002094634"></script>
+  <script src="src/vcf.js?v=20261002094634"></script>
+  <script src="src/bam.js?v=20261002094634"></script>
+  <script src="src/clinvar.js?v=20261002094634"></script>
+  <script src="src/windows.js?v=20261002094634"></script>
+  <script src="src/regulatory.js?v=20261002094634"></script>
+  <script src="src/samples.js?v=20261002094634"></script>
+  <script src="src/gwas.js?v=20261002094634"></script>
+  <script src="src/pathways.js?v=20261002094634"></script>
+  <script src="src/gnomad.js?v=20261002094634"></script>
+  <script src="src/view.js?v=20261002094634"></script>
+  <script src="src/navigation.js?v=20261002094634"></script>
+  <script src="src/tracks.js?v=20261002094634"></script>
+  <script src="src/hilbert.js?v=20261002094634"></script>
+  <script src="src/circos.js?v=20261002094634"></script>
+  <script src="src/genecentric.js?v=20261002094634"></script>
+  <script src="src/protein.js?v=20261002094634"></script>
+  <script src="src/hic.js?v=20261002094634"></script>
+  <script src="src/roh.js?v=20261002094634"></script>
+  <script src="src/prs.js?v=20261002094634"></script>
+  <script src="src/methylation.js?v=20261002094634"></script>
+  <script src="src/panels.js?v=20261002094634"></script>
+  <script src="src/xr.js?v=20261002094634"></script>
+  <script src="src/structure.js?v=20261002094634"></script>
+  <script src="src/molecule.js?v=20261002094634"></script>
+  <script src="src/app.js?v=20261002094634"></script>
+  <script src="src/landscape.js?v=20261002094634"></script>
+  <script src="src/matrix.js?v=20261002094634"></script>
+</body>
+</html>

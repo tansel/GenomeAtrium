@@ -1,0 +1,313 @@
+{
+ "source": "Asclepius app/ancestry.py AIM_PANEL, KB 2026-06 (Ensembl/1000G)",
+ "build": "GRCh38",
+ "superpops": [
+  "AFR",
+  "EUR",
+  "EAS",
+  "SAS",
+  "AMR"
+ ],
+ "markers": [
+  {
+   "rsid": "rs1426654",
+   "gene": "SLC24A5",
+   "chrom": "15",
+   "pos": 48134287,
+   "ref": "A",
+   "alt": "G",
+   "freq": {
+    "AFR": 0.926,
+    "EUR": 0.003,
+    "EAS": 0.988,
+    "SAS": 0.315,
+    "AMR": 0.411
+   }
+  },
+  {
+   "rsid": "rs16891982",
+   "gene": "SLC45A2",
+   "chrom": "5",
+   "pos": 33951588,
+   "ref": "C",
+   "alt": "G",
+   "freq": {
+    "AFR": 0.036,
+    "EUR": 0.938,
+    "EAS": 0.006,
+    "SAS": 0.059,
+    "AMR": 0.464
+   }
+  },
+  {
+   "rsid": "rs3827760",
+   "gene": "EDAR",
+   "chrom": "2",
+   "pos": 108897145,
+   "ref": "A",
+   "alt": "G",
+   "freq": {
+    "AFR": 0.003,
+    "EUR": 0.011,
+    "EAS": 0.873,
+    "SAS": 0.013,
+    "AMR": 0.392
+   }
+  },
+  {
+   "rsid": "rs2814778",
+   "gene": "ACKR1/DARC",
+   "chrom": "1",
+   "pos": 159204893,
+   "ref": "T",
+   "alt": "C",
+   "freq": {
+    "AFR": 0.964,
+    "EUR": 0.006,
+    "EAS": 0.0,
+    "SAS": 0.0,
+    "AMR": 0.078
+   }
+  },
+  {
+   "rsid": "rs1800414",
+   "gene": "OCA2",
+   "chrom": "15",
+   "pos": 27951891,
+   "ref": "T",
+   "alt": "C",
+   "freq": {
+    "AFR": 0.001,
+    "EUR": 0.0,
+    "EAS": 0.596,
+    "SAS": 0.004,
+    "AMR": 0.0
+   }
+  },
+  {
+   "rsid": "rs17822931",
+   "gene": "ABCC11",
+   "chrom": "16",
+   "pos": 48224287,
+   "ref": "C",
+   "alt": "T",
+   "freq": {
+    "AFR": 0.012,
+    "EUR": 0.136,
+    "EAS": 0.78,
+    "SAS": 0.482,
+    "AMR": 0.14
+   }
+  },
+  {
+   "rsid": "rs12913832",
+   "gene": "HERC2",
+   "chrom": "15",
+   "pos": 28120472,
+   "ref": "A",
+   "alt": "G",
+   "freq": {
+    "AFR": 0.028,
+    "EUR": 0.636,
+    "EAS": 0.002,
+    "SAS": 0.071,
+    "AMR": 0.202
+   }
+  },
+  {
+   "rsid": "rs4988235",
+   "gene": "MCM6/LCT",
+   "chrom": "2",
+   "pos": 135851076,
+   "ref": "G",
+   "alt": "A",
+   "freq": {
+    "AFR": 0.027,
+    "EUR": 0.508,
+    "EAS": 0.0,
+    "SAS": 0.113,
+    "AMR": 0.216
+   }
+  },
+  {
+   "rsid": "rs1042602",
+   "gene": "TYR",
+   "chrom": "11",
+   "pos": 89178528,
+   "ref": "C",
+   "alt": "A",
+   "freq": {
+    "AFR": 0.012,
+    "EUR": 0.372,
+    "EAS": 0.001,
+    "SAS": 0.063,
+    "AMR": 0.238
+   }
+  },
+  {
+   "rsid": "rs2066702",
+   "gene": "ADH1B",
+   "chrom": "4",
+   "pos": 99307860,
+   "ref": "G",
+   "alt": "A",
+   "freq": {
+    "AFR": 0.191,
+    "EUR": 0.0,
+    "EAS": 0.0,
+    "SAS": 0.0,
+    "AMR": 0.02
+   }
+  },
+  {
+   "rsid": "rs3811801",
+   "gene": "ADH1B",
+   "chrom": "4",
+   "pos": 99323162,
+   "ref": "G",
+   "alt": "A",
+   "freq": {
+    "AFR": 0.0,
+    "EUR": 0.0,
+    "EAS": 0.51,
+    "SAS": 0.0,
+    "AMR": 0.0
+   }
+  },
+  {
+   "rsid": "rs6119471",
+   "gene": "ASIP",
+   "chrom": "20",
+   "pos": 34197406,
+   "ref": "C",
+   "alt": "G",
+   "freq": {
+    "AFR": 0.686,
+    "EUR": 0.001,
+    "EAS": 0.0,
+    "SAS": 0.0,
+    "AMR": 0.069
+   }
+  },
+  {
+   "rsid": "rs1129038",
+   "gene": "HERC2",
+   "chrom": "15",
+   "pos": 28111713,
+   "ref": "C",
+   "alt": "T",
+   "freq": {
+    "AFR": 0.028,
+    "EUR": 0.635,
+    "EAS": 0.001,
+    "SAS": 0.07,
+    "AMR": 0.203
+   }
+  },
+  {
+   "rsid": "rs260690",
+   "gene": "EDAR-region",
+   "chrom": "2",
+   "pos": 108963282,
+   "ref": "C",
+   "alt": "A",
+   "freq": {
+    "AFR": 0.371,
+    "EUR": 0.922,
+    "EAS": 0.063,
+    "SAS": 0.887,
+    "AMR": 0.536
+   }
+  },
+  {
+   "rsid": "rs7495174",
+   "gene": "OCA2",
+   "chrom": "15",
+   "pos": 28099092,
+   "ref": "A",
+   "alt": "G",
+   "freq": {
+    "AFR": 0.143,
+    "EUR": 0.086,
+    "EAS": 0.642,
+    "SAS": 0.232,
+    "AMR": 0.156
+   }
+  },
+  {
+   "rsid": "rs1834640",
+   "gene": "SLC24A5-reg",
+   "chrom": "15",
+   "pos": 48099968,
+   "ref": "A",
+   "alt": "G",
+   "freq": {
+    "AFR": 0.927,
+    "EUR": 0.006,
+    "EAS": 0.924,
+    "SAS": 0.315,
+    "AMR": 0.314
+   }
+  },
+  {
+   "rsid": "rs2238151",
+   "gene": "TYRP1",
+   "chrom": "12",
+   "pos": 111774029,
+   "ref": "T",
+   "alt": "C",
+   "freq": {
+    "AFR": 0.966,
+    "EUR": 0.313,
+    "EAS": 0.932,
+    "SAS": 0.691,
+    "AMR": 0.421
+   }
+  },
+  {
+   "rsid": "rs1800498",
+   "gene": "DRD2-reg",
+   "chrom": "11",
+   "pos": 113420866,
+   "ref": "G",
+   "alt": "A",
+   "freq": {
+    "AFR": 0.148,
+    "EUR": 0.613,
+    "EAS": 0.064,
+    "SAS": 0.326,
+    "AMR": 0.378
+   }
+  },
+  {
+   "rsid": "rs735480",
+   "gene": "GADL1",
+   "chrom": "15",
+   "pos": 44860173,
+   "ref": "T",
+   "alt": "C",
+   "freq": {
+    "AFR": 0.949,
+    "EUR": 0.107,
+    "EAS": 0.414,
+    "SAS": 0.229,
+    "AMR": 0.367
+   }
+  },
+  {
+   "rsid": "rs4918664",
+   "gene": "C10orf11",
+   "chrom": "10",
+   "pos": 93161308,
+   "ref": "A",
+   "alt": "G",
+   "freq": {
+    "AFR": 0.019,
+    "EUR": 0.123,
+    "EAS": 0.865,
+    "SAS": 0.393,
+    "AMR": 0.396
+   }
+  }
+ ]
+}
