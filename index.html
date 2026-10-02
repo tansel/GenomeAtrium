@@ -168,6 +168,7 @@
     <div id="gwasBox"><div class="fhead">GWAS <span class="dim" id="gwasNote"></span></div>
       <input type="text" id="gwasSearch" placeholder="trait: type 2 diabetes, height, LDL..." style="width:100%;box-sizing:border-box">
       <div id="gwasList"></div></div>
+    <div id="depressionBox"><div class="fhead">Depression <button id="depressionOpen">open the card</button></div><div id="depressionOut"></div></div>
     <div id="prsBox"><div class="fhead">Polygenic scores <span class="dim">PGS Catalog</span></div>
       <input type="text" id="prsSearch" placeholder="trait, or a score ID: coronary, PGS000058..." style="width:100%;box-sizing:border-box">
       <div id="prsResults"></div><div id="prsOut"></div></div>
@@ -236,35 +237,36 @@
   <div id="help" class="panel">wheel zoom &middot; drag pan &middot; click a chromosome to open it &middot; double click resets</div>
 
   <script src="moebio_framework/dist/moebio_framework.js"></script>
-  <script src="src/bgzf.js?v=20261002141909"></script>
-  <script src="src/genome.js?v=20261002141909"></script>
-  <script src="src/vcf.js?v=20261002141909"></script>
-  <script src="src/bam.js?v=20261002141909"></script>
-  <script src="src/clinvar.js?v=20261002141909"></script>
-  <script src="src/windows.js?v=20261002141909"></script>
-  <script src="src/regulatory.js?v=20261002141909"></script>
-  <script src="src/samples.js?v=20261002141909"></script>
-  <script src="src/gwas.js?v=20261002141909"></script>
-  <script src="src/pathways.js?v=20261002141909"></script>
-  <script src="src/gnomad.js?v=20261002141909"></script>
-  <script src="src/view.js?v=20261002141909"></script>
-  <script src="src/navigation.js?v=20261002141909"></script>
-  <script src="src/tracks.js?v=20261002141909"></script>
-  <script src="src/hilbert.js?v=20261002141909"></script>
-  <script src="src/circos.js?v=20261002141909"></script>
-  <script src="src/genecentric.js?v=20261002141909"></script>
-  <script src="src/protein.js?v=20261002141909"></script>
-  <script src="src/hic.js?v=20261002141909"></script>
-  <script src="src/roh.js?v=20261002141909"></script>
-  <script src="src/people.js?v=20261002141909"></script>
-  <script src="src/prs.js?v=20261002141909"></script>
-  <script src="src/methylation.js?v=20261002141909"></script>
-  <script src="src/panels.js?v=20261002141909"></script>
-  <script src="src/xr.js?v=20261002141909"></script>
-  <script src="src/structure.js?v=20261002141909"></script>
-  <script src="src/molecule.js?v=20261002141909"></script>
-  <script src="src/app.js?v=20261002141909"></script>
-  <script src="src/landscape.js?v=20261002141909"></script>
-  <script src="src/matrix.js?v=20261002141909"></script>
+  <script src="src/bgzf.js?v=20261002151041"></script>
+  <script src="src/genome.js?v=20261002151041"></script>
+  <script src="src/vcf.js?v=20261002151041"></script>
+  <script src="src/bam.js?v=20261002151041"></script>
+  <script src="src/clinvar.js?v=20261002151041"></script>
+  <script src="src/windows.js?v=20261002151041"></script>
+  <script src="src/regulatory.js?v=20261002151041"></script>
+  <script src="src/samples.js?v=20261002151041"></script>
+  <script src="src/gwas.js?v=20261002151041"></script>
+  <script src="src/pathways.js?v=20261002151041"></script>
+  <script src="src/gnomad.js?v=20261002151041"></script>
+  <script src="src/view.js?v=20261002151041"></script>
+  <script src="src/navigation.js?v=20261002151041"></script>
+  <script src="src/tracks.js?v=20261002151041"></script>
+  <script src="src/hilbert.js?v=20261002151041"></script>
+  <script src="src/circos.js?v=20261002151041"></script>
+  <script src="src/genecentric.js?v=20261002151041"></script>
+  <script src="src/protein.js?v=20261002151041"></script>
+  <script src="src/hic.js?v=20261002151041"></script>
+  <script src="src/roh.js?v=20261002151041"></script>
+  <script src="src/pgx.js?v=20261002151041"></script>
+  <script src="src/people.js?v=20261002151041"></script>
+  <script src="src/prs.js?v=20261002151041"></script>
+  <script src="src/methylation.js?v=20261002151041"></script>
+  <script src="src/panels.js?v=20261002151041"></script>
+  <script src="src/xr.js?v=20261002151041"></script>
+  <script src="src/structure.js?v=20261002151041"></script>
+  <script src="src/molecule.js?v=20261002151041"></script>
+  <script src="src/app.js?v=20261002151041"></script>
+  <script src="src/landscape.js?v=20261002151041"></script>
+  <script src="src/matrix.js?v=20261002151041"></script>
 </body>
 </html>

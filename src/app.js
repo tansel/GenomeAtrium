@@ -88,7 +88,7 @@
       refreshRegulatory();
       refreshSamples();
       refreshNc(); gwasNote(); renderGwas();
-      refreshRoh(); refreshPanels(); renderMethylation(); renderPrs(); renderPeople();
+      refreshRoh(); refreshPanels(); renderMethylation(); renderPrs(); renderPeople(); renderDepression(false);
       if (G.landscape) G.landscape.setData(data);
       if (G.matrix) G.matrix.setData(data);
       G.app.hilbert.setData(data); G.app.circos.setData(data); renderHilbertLayers();
@@ -587,6 +587,70 @@
     $('prsMean').oninput = $('prsSd').oninput = upd;
     Array.prototype.forEach.call(out.querySelectorAll('[data-prs]'), function (el) { el.onclick = function (e) { e.preventDefault(); var x = r.top[+el.dataset.prs]; G.app.setMode('arcs'); view.goTo(x.chrom, x.pos - 50, x.pos + 50); }; });
     describe(current);
+  }
+
+  // ----- the depression card: antidepressant pharmacogenomics (Asclepius pgx, CPIC),
+  // depression polygenic scores (PGS Catalog) and GWAS loci. Evidence, cited; no
+  // metaboliser status (Asclepius D7) and no diagnosis.
+  var CPIC_ANTIDEPRESSANTS = [
+    ['SSRIs and SNRIs (CYP2D6, CYP2C19, CYP2B6)', 'https://cpicpgx.org/guidelines/cpic-guideline-for-ssri-and-snri-antidepressants/'],
+    ['Tricyclic antidepressants (CYP2D6, CYP2C19)', 'https://cpicpgx.org/guidelines/guideline-for-tricyclic-antidepressants-and-cyp2d6-and-cyp2c19/']];
+  var depressionScores = null;
+  $('depressionOpen').onclick = function () { renderDepression(true); };
+  function renderDepression(open) {
+    var out = $('depressionOut'), d = current;
+    if (!open && !out.innerHTML) return;
+    if (!d || d.format !== 'vcf') { out.innerHTML = '<div class="dim">Open a VCF or gVCF first.</div>'; return; }
+    if (d.build !== 'GRCh38') { out.innerHTML = '<div class="warn">The card uses GRCh38 positions (CPIC sites, GWAS Catalog, PGS); this file is ' + esc(d.build || 'of unknown build') + '.</div>'; return; }
+    var STATE = function (g) {
+      return g.state === 'copies' ? '<b>' + g.copies + (g.copies === 1 ? ' copy' : ' copies') + '</b>' : g.state === 'reference' ? '0 copies <span class="dim">(reference, gVCF block)</span>'
+        : g.state === 'other' ? '<span class="warn">other allele</span> <span class="dim">(' + esc(g.why) + ')</span>' : '<span class="warn">' + (g.state === 'unknown' ? 'unknown' : g.state === 'lowdp' ? 'low depth' : 'not called') + '</span> <span class="dim">(' + esc(g.why || '') + ')</span>';
+    };
+    var pgxRows = ['CYP2C19', 'CYP2D6'].map(function (gene) {
+      var gd = G.pgx.pgxGuidance(gene), vs = G.pgx.PGX_VARIANTS.filter(function (v) { return v.gene === gene; });
+      return '<div style="margin-top:3px"><b>' + gene + '</b> <span class="dim">CPIC level ' + esc(gd.cpic_level) + '</span>' + vs.map(function (v) {
+        return '<div>&nbsp; ' + esc(v.star) + ' <span class="dim">' + esc(v.rsid) + ' ' + v.ref + '>' + v.alt + '</span>: ' + STATE(G.pgx.genotypeAt(d, v, 0)) + '</div>';
+      }).join('') + '<div class="dim">&nbsp; ' + esc(gd.recommendation) + '</div></div>';
+    }).join('');
+    var html = '<div><b>Antidepressants</b> <span class="dim">(pharmacogenomics, from Asclepius pgx ' + esc(G.pgx.KB_VERSION) + ')</span></div>' + pgxRows +
+      '<div class="dim" style="margin-top:3px">Copies of the variant that defines each star allele. A metaboliser status needs the full diplotype, and CYP2D6 also its copy number (whole-gene deletions such as *5, duplications, CYP2D7 hybrids), which a VCF does not hold; dedicated callers exist (Cyrius, Aldy). None is assigned here (Asclepius D7). CYP2B6 is in the SSRI guideline but not yet in the Asclepius knowledge base.</div>' +
+      '<div>CPIC guidelines: ' + CPIC_ANTIDEPRESSANTS.map(function (c) { return '<a href="' + c[1] + '" target="_blank" rel="noopener">' + esc(c[0]) + '</a>'; }).join('; ') + '</div>';
+    // polygenic scores
+    var r = G.app.prs && current.prs === G.app.prs && /depress/i.test(G.app.prs.info.trait || '') ? G.app.prs : null;
+    html += '<div style="margin-top:6px"><b>Polygenic scores</b> <span class="dim">(PGS Catalog, major depressive disorder)</span></div>';
+    if (r) html += '<div>' + esc(r.info.id) + ': raw score ' + r.score.toFixed(4) + ' <span class="warn">uncalibrated</span>, ' + (100 * r.coverage).toFixed(1) + '% of ' + n(r.n) + ' sites used. <span class="dim">Without an ancestry-matched reference the number has no meaning on its own; these scores explain only a few percent of the variation in depression.</span></div>';
+    html += '<div id="depScores">' + (depressionScores ? depressionScores.map(function (s) { return '<a href="#" data-dpgs="' + esc(s.id) + '">' + esc(s.id) + '</a> <span class="dim">' + esc(s.name || '') + ', ' + n(s.n) + ' variants</span>'; }).join('<br>') : '<span class="dim">loading the scores...</span>') + '</div>';
+    // GWAS loci
+    var gw = G.app.gwas;
+    html += '<div style="margin-top:6px"><b>GWAS Catalog</b> <span class="dim">(depression traits, p &le; 5e-8)</span></div>';
+    if (gw) {
+      // depression itself only: interaction tests (lipids x depression), combined disorders
+      // ("bipolar or major depressive") and MTAG analyses are left out
+      var keep = /^(lifetime |recurrent )?(major depressive disorder|depression|depressive symptoms|depressed affect)( \((broad|narrow)\))?$/i;
+      var traits = gw.searchTraits('depress', 200).filter(function (t) { return keep.test(t.trait.trim()); }), loci = gw.lociFor(traits.map(function (t) { return t.idx; }));
+      var carried = 0, readable = 0, copies = 0, rows = [];
+      loci.forEach(function (l) {
+        var ds = gw.dosage(d, l.k, l.i, 0);
+        if (ds.dosage !== null) { readable++; copies += ds.dosage; if (ds.dosage > 0) carried++; }
+        if (rows.length < 10) rows.push({ l: l, ds: ds });
+      });
+      html += '<div>' + n(loci.length) + ' loci across ' + traits.length + ' depression traits (' + esc(traits.map(function (t) { return t.trait; }).join('; ')) + '; interaction, combined-disorder and MTAG traits left out). Readable here: ' + n(readable) + '; this genome carries the reported risk allele at ' + n(carried) + ' of them (' + n(copies) + ' copies). <span class="dim">Risk alleles at these loci are common: most people carry many, and each moves risk very little.</span></div>' +
+        rows.map(function (x) {
+          var g = gw.byContig[x.l.k];
+          return '<div class="dim">&nbsp; <a href="#" data-dgw="' + x.l.k + ':' + g.pos[x.l.i] + '">' + esc(g.rsid[x.l.i]) + '</a> ' + esc(g.gene[x.l.i] || '') + ' risk ' + esc(g.risk[x.l.i]) + ', p ' + x.l.p.toExponential(0) + ': ' + (x.ds.dosage === null ? 'unknown (' + esc(x.ds.reason) + ')' : x.ds.dosage + ' copies') + '</div>';
+        }).join('');
+    } else html += '<div class="dim">GWAS Catalog not loaded (python3 tools/fetch_annotations.py).</div>';
+    html += '<div class="warn" style="margin-top:6px">Not a diagnosis and not a prescription. Depression is common and mostly not predictable from DNA; drug choice and dose belong to a clinician, with the CPIC guidelines.</div>';
+    out.innerHTML = html;
+    Array.prototype.forEach.call(out.querySelectorAll('[data-dpgs]'), function (el) { el.onclick = function (e) { e.preventDefault(); loadScore(el.dataset.dpgs).then(function () { renderDepression(true); }); }; });
+    Array.prototype.forEach.call(out.querySelectorAll('[data-dgw]'), function (el) { el.onclick = function (e) { e.preventDefault(); var x = el.dataset.dgw.split(':'); G.app.setMode('arcs'); view.goTo(current.genome.get(x[0]).name, +x[1] - 5000, +x[1] + 5000); }; });
+    if (!depressionScores) G.prs.searchTraits('major depressive').then(async function (ts) {
+      var ids = [];
+      ts.forEach(function (t) { if (/major depressive disorder/i.test(t.label)) t.scores.forEach(function (id) { if (ids.indexOf(id) < 0) ids.push(id); }); });
+      var infos = await Promise.all(ids.slice(0, 6).map(function (id) { return G.prs.scoreInfo(id).catch(function () { return null; }); }));
+      depressionScores = infos.filter(Boolean).map(function (s) { return { id: s.id, name: s.name, n: s.n }; });
+      renderDepression(true);
+    }, function () { depressionScores = []; $('depScores').innerHTML = '<span class="warn">PGS Catalog unreachable</span>'; });
   }
 
   // ----- methylation overlay (methylation.js): only when a methylation file is opened
