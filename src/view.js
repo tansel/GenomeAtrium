@@ -234,6 +234,7 @@
     if (this.gwas && this.layers.gwas && this.grch38()) this.drawGwas(g, axisY);
     if (this.layers.ticks && d.format === 'vcf') this.drawTicks(g, axisY);
     if (this.findings.length && this.layers.findings) this.drawFindings(g, axisY);
+    if (this.people && this.people.length > 1 && this.layers.findings) this.drawPeopleFindings(g, axisY);
     if (this.drawOverview) this.drawOverview(g);
     this.drawReadout(g, axisY);
     if (this.hover) this.drawTooltip(g, this.hover.lines);
@@ -319,6 +320,12 @@
          { key: 'indel', label: 'indel', color: COLORS.indel, series: 'indel' },
          { key: 'het', label: 'het fraction', color: 'rgb(190,140,255)', ratio: true }]
       : [{ key: 'depth', label: 'mean depth', color: COLORS.depth, series: 'depth', mean: true }];
+    // other people (people.js): a het-fraction row each, in their colour
+    var ps = this.people || [];
+    if (ps.length > 1 && d.format === 'vcf') {
+      rows.forEach(function (r) { if (r.key === 'het') { r.label = ps[0].name + ' het fraction'; r.color = ps[0].color; } });
+      ps.forEach(function (p, i) { if (i && p.visible) rows.push({ key: 'het:' + i, label: p.name + ' het fraction', color: p.color, ratio: true, person: p }); });
+    }
     if (d.methyl) rows.push({ key: 'methyl', label: 'methylation', methyl: true });
     if (d.prs) rows.push({ key: 'prs', label: 'score ' + d.prs.info.id, prs: true });
     return rows.filter(function (r) { return L[r.key] !== false; });
@@ -340,7 +347,10 @@
       var bpPerPx = s.contig.length / sc.w, span = bpPerPx * STEP;
       var lv = {};
       rows.forEach(function (r) {
-        if (r.ratio) { lv.het = tr.het.levelFor(span); lv.hom = tr.hom.levelFor(span); }
+        if (r.ratio) {
+          var T = r.person ? r.person.tracks()[s.contig.key] : tr;
+          lv[r.key] = T ? [T.het.levelFor(span), T.hom.levelFor(span)] : null;
+        }
         else if (r.methyl) { var mt = d.methyl.tracks(s.contig.key); if (mt) { lv.mMeth = mt.meth.levelFor(span); lv.mCov = mt.cov.levelFor(span); } }
         else if (r.prs) { var pt = d.prs.tracks[s.contig.key]; if (pt) { lv.pPos = pt.pos.levelFor(span); lv.pNeg = pt.neg.levelFor(span); } }
         else lv[r.key] = tr[r.series].levelFor(span);
@@ -356,8 +366,8 @@
         var v = {};
         rows.forEach(function (r) {
           if (r.ratio) {
-            var he = sampleLevel(lv.het, a, b, 'sum'), ho = sampleLevel(lv.hom, a, b, 'sum');
-            v.het = he + ho >= 3 ? he / (he + ho) : null; v.nGt = he + ho;
+            var L2 = lv[r.key], he = L2 ? sampleLevel(L2[0], a, b, 'sum') : 0, ho = L2 ? sampleLevel(L2[1], a, b, 'sum') : 0;
+            v[r.key] = he + ho >= 3 ? he / (he + ho) : null; v[r.key + ':n'] = he + ho;
           } else if (r.prs) {
             v.prs = lv.pPos ? sampleLevel(lv.pPos, a, b, 'sum') - sampleLevel(lv.pNeg, a, b, 'sum') : null;
             if (v.prs === 0) v.prs = null;
@@ -433,7 +443,7 @@
           var val = col.v[r.key];
           if (r.prs) { lines.push('score contribution: ' + (val == null ? 'none here' : (val > 0 ? '+' : '') + val.toFixed(4))); return; }
           if (r.methyl) { lines.push('methylation: ' + (val == null ? 'too few calls' : Math.round(100 * val) + '% (' + Math.round(col.v.mCov) + ' calls)')); return; }
-          lines.push(r.label + ': ' + (val == null ? 'too few genotypes' : r.ratio ? val.toFixed(2) + ' (' + Math.round(col.v.nGt) + ' genotypes)' :
+          lines.push(r.label + ': ' + (val == null ? 'too few genotypes' : r.ratio ? val.toFixed(2) + ' (' + Math.round(col.v[r.key + ':n']) + ' genotypes)' :
             r.mean ? val.toFixed(2) + 'x' : val.toFixed(val < 10 ? 1 : 0)));
         });
         if (col.cal) lines.push('callable ' + Math.round(Math.min(1, col.cal[0]) * 100) + '%, low depth ' + Math.round(Math.min(1, col.cal[1]) * 100) + '%');
@@ -610,6 +620,27 @@
 
   // Findings (ClinVar P/LP alleles in the sample, and dropped findings files):
   // a stem with a head at every zoom level, so they are never lost.
+  // Other people's findings: a small diamond each, in the person's colour, on a stem
+  // that grows with the person's place in the list (so a shared finding shows as a stack).
+  View.prototype.drawPeopleFindings = function (g, axisY) {
+    var ctx = g.context, self = this, best = null, bestD = 8;
+    this.people.forEach(function (p, i) {
+      if (!i || !p.visible) return;
+      p.findings().forEach(function (f) {
+        var x = self.bpToX(G.genome.normName(f.chrom), f.pos);
+        if (x === null || x < -10 || x > g.cW + 10) return;
+        var y = axisY - 40 - 12 * i;
+        ctx.strokeStyle = withAlpha(p.color, 0.5); ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(x + 2 * i, axisY - 2); ctx.lineTo(x + 2 * i, y); ctx.stroke();
+        ctx.fillStyle = p.color;
+        ctx.beginPath(); ctx.moveTo(x + 2 * i, y - 5); ctx.lineTo(x + 2 * i + 4, y); ctx.lineTo(x + 2 * i, y + 5); ctx.lineTo(x + 2 * i - 4, y); ctx.closePath(); ctx.fill();
+        var dd = Math.hypot(g.mX - x - 2 * i, g.mY - y);
+        if (dd < bestD) { bestD = dd; best = [f, p]; }
+      });
+    });
+    if (best && !this.hover) this.hover = { lines: [best[1].name + ': ' + best[0].gene + '  ' + (best[0].classification || ''), (best[0].variant_name || '').slice(0, 90), best[0].chrom + ':' + best[0].pos.toLocaleString() + '  ' + (best[0].zygosity || '')] };
+  };
+
   View.prototype.drawFindings = function (g, axisY) {
     var ctx = g.context, self = this, placed = [], best = null, bestD = 9;
     var hl = this.highlightFinding;

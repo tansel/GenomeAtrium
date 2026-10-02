@@ -76,6 +76,7 @@
       if (data.clinvarHits) data.overlays.GenomeAtrium = G.clinvar.toFindings(data.clinvarHits,
         { name: 'GenomeAtrium', code: 'src/clinvar.js' }, { file: file.name }, data.build, 'ClinVar P/LP from Asclepius');
       current = data;
+      setPeople(data);
       view.setStatus(null);
       view.history = []; view.histIdx = null; view.selection = null;
       if (view.mode === 'tracks' || view.mode === 'atrium') setMode('arcs');
@@ -87,7 +88,7 @@
       refreshRegulatory();
       refreshSamples();
       refreshNc(); gwasNote(); renderGwas();
-      refreshRoh(); refreshPanels(); renderMethylation(); renderPrs();
+      refreshRoh(); refreshPanels(); renderMethylation(); renderPrs(); renderPeople();
       if (G.landscape) G.landscape.setData(data);
       if (G.matrix) G.matrix.setData(data);
       G.app.hilbert.setData(data); G.app.circos.setData(data); renderHilbertLayers();
@@ -408,6 +409,90 @@
   }
   var gwasTimer = null;
   $('gwasSearch').oninput = function () { clearTimeout(gwasTimer); gwasTimer = setTimeout(renderGwas, 250); };
+  // ----- people (people.js): several persons on one genome, each in a colour
+  G.app.people = view.people = [];
+  function setPeople(d) {
+    var ps = [];
+    if (d.format === 'vcf') {
+      var names = d.samples && d.samples.length ? d.samples : [d.fileName];
+      for (var s = 0; s < Math.min(names.length, G.people.MAX); s++) ps.push(new G.people.Person(d, s, names[s] || d.fileName, s));
+    }
+    G.app.people = view.people = ps;
+  }
+  // A genome VCF that should join as a person (not an SV, methylation or findings file).
+  function isPersonFile(f) {
+    return /\.vcf(\.b?gz)?$/i.test(f.name) && !/(^|[._-])(sv|svs|sniffles|wf_sv)([._-]|$)/i.test(f.name);
+  }
+  // Several files: the first genome is primary, later genome VCFs join as people, the rest load as usual.
+  function loadMany(fs) {
+    if (!fs.length) return;
+    var first = true;
+    fs.sort(function (a, b) { return isPersonFile(b) - isPersonFile(a); }); // genomes before overlays
+    fs.reduce(function (p, f) {
+      return p.then(function () {
+        if (isPersonFile(f) && !first) return addPerson(f);
+        if (isPersonFile(f)) first = false;
+        return load(f);
+      });
+    }, Promise.resolve());
+  }
+  async function addPerson(file) {
+    var base = current;
+    if (!base || base.format !== 'vcf') return load(file); // nothing to add to: it becomes the genome
+    if (G.app.people.length >= G.people.MAX) { $('peopleBox').innerHTML += '<div class="warn">Up to ' + G.people.MAX + ' people at a time.</div>'; return; }
+    view.setStatus({ fraction: 0, text: 'reading ' + file.name + ' (adding a person)' });
+    try {
+      await clinvarReady;
+      var d = await G.vcf.parse(file, { clinvar: G.app.clinvar, onProgress: function (done, total) { view.setStatus({ fraction: done / total, text: 'reading ' + file.name + ' (adding a person) ' + Math.round(100 * done / total) + '%' }); } });
+      if (current !== base) return;
+      if (d.build !== base.build) throw new Error(file.name + ' is ' + d.build + ', the genome is ' + base.build + ': coordinates are never compared across builds.');
+      d.fileName = file.name;
+      var names = d.samples && d.samples.length ? d.samples : [file.name];
+      for (var s = 0; s < names.length && G.app.people.length < G.people.MAX; s++) G.app.people.push(new G.people.Person(d, s, names[s] || file.name, G.app.people.length));
+      view.people = G.app.people;
+      view.setStatus(null);
+      renderPeople();
+    } catch (err) {
+      console.error(err); view.setStatus(null);
+      $('peopleBox').innerHTML += '<div class="warn">' + esc(err.message) + '</div>';
+    }
+  }
+  G.app.addPerson = addPerson;
+  function renderPeople() {
+    var ps = G.app.people, box = $('peopleBox');
+    if (!ps || ps.length < 2) { box.innerHTML = ps && ps.length === 1 && current && current.format === 'vcf' ? '<div class="dim">Add person: open more VCFs (Add person, or several files at once) to see a family together.</div>' : ''; if (G.app.onExtrasChanged) G.app.onExtrasChanged(); return; }
+    var ROLES = ['', 'child', 'mother', 'father', 'sibling', 'other'];
+    var html = '<div class="fhead">People <span class="dim">first is primary; each in its colour</span></div>' + ps.map(function (p, i) {
+      var fs = p.findings(), r = p.roh();
+      return '<div><input type="checkbox" data-pvis="' + i + '"' + (p.visible ? ' checked' : '') + (i === 0 ? ' disabled' : '') + '>' +
+        '<span class="sw" style="background:' + p.color + '"></span><b>' + esc(p.name) + '</b> ' +
+        '<select data-prole="' + i + '">' + ROLES.map(function (x) { return '<option' + (x === p.role ? ' selected' : '') + ' value="' + x + '">' + (x || 'role') + '</option>'; }).join('') + '</select>' +
+        ' <span class="dim">' + fs.length + ' findings' + (r ? ', F<sub>ROH</sub> ' + (100 * r.fRoh).toFixed(2) + '%' : '') + (p.data !== current ? '' : p.sample ? ', sample ' + (p.sample + 1) : '') + '</span>' +
+        (i ? ' <a href="#" data-prm="' + i + '">remove</a>' : '') + '</div>';
+    }).join('');
+    var by = function (role) { return ps.find(function (p) { return p.role === role; }); }, kid = by('child'), mum = by('mother'), dad = by('father');
+    if (kid && mum && dad) {
+      var sh = G.people.sharing(kid, mum, dad), pc = function (x) { return (100 * x / Math.max(1, sh.n)).toFixed(1) + '%'; };
+      html += '<div style="margin-top:4px"><b>Parent check</b>: of ' + n(sh.n) + ' alleles in ' + esc(kid.name) + ', ' + pc(sh.mother) + ' seen only in ' + esc(mum.name) + ', ' + pc(sh.father) + ' only in ' + esc(dad.name) + ', ' + pc(sh.both) + ' in both, ' + pc(sh.neither) + ' in neither.' +
+        ' <span class="dim">Similar shares from each parent and few in neither fit a child of both. "Neither" mixes new mutations with calls a parent\'s file lacks' + (kid.data.isGvcf ? '' : ' (plain VCFs list variants only, so a missing site is unknown, not reference)') + '.</span></div>';
+    }
+    var shared = G.people.sharedRoh(ps.filter(function (p) { return p.visible; }));
+    if (shared.length) html += '<div style="margin-top:4px"><b>Runs of homozygosity in more than one person</b>: ' + shared.slice(0, 8).map(function (s) {
+      return '<a href="#" data-sroh="' + s.chrom + ':' + s.start + ':' + s.end + '">' + esc(s.chrom) + ':' + G.fmtBp(s.start) + '-' + G.fmtBp(s.end) + '</a> <span class="dim">(' + s.who.map(function (w) { return esc(ps[w].name); }).join(', ') + ')</span>';
+    }).join('; ') + '</div>';
+    box.innerHTML = html;
+    Array.prototype.forEach.call(box.querySelectorAll('[data-pvis]'), function (el) { el.onchange = function () { ps[+el.dataset.pvis].visible = el.checked; renderPeople(); }; });
+    Array.prototype.forEach.call(box.querySelectorAll('[data-prole]'), function (el) { el.onchange = function () { ps[+el.dataset.prole].role = el.value; renderPeople(); }; });
+    Array.prototype.forEach.call(box.querySelectorAll('[data-prm]'), function (el) {
+      el.onclick = function (e) { e.preventDefault(); ps.splice(+el.dataset.prm, 1); ps.forEach(function (p, i) { p.index = i; p.color = G.people.PALETTE[i]; }); renderPeople(); };
+    });
+    Array.prototype.forEach.call(box.querySelectorAll('[data-sroh]'), function (el) {
+      el.onclick = function (e) { e.preventDefault(); var x = el.dataset.sroh.split(':'); G.app.setMode('arcs'); view.goTo(x[0], +x[1], +x[2]); };
+    });
+    if (G.app.onExtrasChanged) G.app.onExtrasChanged();
+  }
+  G.app.renderPeople = renderPeople;
+
   // ----- structural variants from a separate VCF, added to the loaded genome
   async function loadSv(file) {
     var base = current;
@@ -983,15 +1068,19 @@
     $('toggleMark').textContent = c ? 'show details' : 'hide details';
   };
   $('open').onclick = function () { $('file').click(); };
-  $('file').onchange = function (e) { if (e.target.files[0]) load(e.target.files[0]); };
+  $('file').onchange = function (e) { loadMany(Array.prototype.slice.call(e.target.files)); e.target.value = ''; };
+  $('addPerson').onclick = function () { $('fileAdd').click(); };
+  $('fileAdd').onchange = function (e) {
+    var fs = Array.prototype.slice.call(e.target.files); e.target.value = '';
+    fs.reduce(function (p, f) { return p.then(function () { return addPerson(f); }); }, Promise.resolve());
+  };
   $('stop').onclick = function () { if (controller) controller.abort(); };
 
   document.addEventListener('dragover', function (e) { e.preventDefault(); document.body.classList.add('dragging'); });
   document.addEventListener('dragleave', function (e) { if (!e.relatedTarget) document.body.classList.remove('dragging'); });
   document.addEventListener('drop', function (e) {
     e.preventDefault(); document.body.classList.remove('dragging');
-    var f = Array.prototype.find.call(e.dataTransfer.files, function (f) { return !/\.(tbi|bai|csi|crai)$/i.test(f.name); });
-    if (f) load(f);
+    loadMany(Array.prototype.filter.call(e.dataTransfer.files, function (f) { return !/\.(tbi|bai|csi|crai)$/i.test(f.name); }));
   });
 
   $('goto').addEventListener('keydown', function (e) {
@@ -1241,13 +1330,21 @@
   // Several files load in order: ?url=local/a.g.vcf.gz,local/a.findings.json
   var params = new URLSearchParams(location.search), q = params.get('url');
   // The public HG002 demo (tools/fetch_hg002.py): small variants, SVs, methylation per haplotype.
-  var DEMO = { hg002: ['hg002.wf_snp.vcf.gz', 'hg002.wf_sv.vcf.gz', 'hg002.hap1.methyl.1kb.cov.gz', 'hg002.hap2.methyl.1kb.cov.gz'].map(function (f) { return 'data/demo/hg002/' + f; }).join(',') };
+  var DEMO_ROLES = { hg002trio: { hg002: 'child', hg003: 'father', hg004: 'mother' } };
+  var DEMO = { hg002trio: ['hg002.wf_snp.vcf.gz', 'hg003.wf_snp.vcf.gz', 'hg004.wf_snp.vcf.gz'].map(function (f) { return 'data/demo/hg002/' + f; }).join(','),
+    hg002: ['hg002.wf_snp.vcf.gz', 'hg002.wf_sv.vcf.gz', 'hg002.hap1.methyl.1kb.cov.gz', 'hg002.hap2.methyl.1kb.cov.gz'].map(function (f) { return 'data/demo/hg002/' + f; }).join(',') };
   if (!q && DEMO[params.get('demo')]) q = DEMO[params.get('demo')];
   if (!q) fetch('data/demo/hg002/hg002.wf_snp.vcf.gz', { method: 'HEAD' }).then(function (r) {
     if (r.ok && !current) $('summary').innerHTML += '<br>Or open the <a href="?demo=hg002">public HG002 demo</a> (Genome in a Bottle, nanopore 60x: variants, SVs, methylation per haplotype).';
   }, function () { /* no demo data here */ });
-  if (q) q.split(',').reduce(function (prev, u) {
-    return prev.then(function () { return fetch(u); }).then(function (r) { return r.blob(); })
-      .then(function (b) { return load(new File([b], u.split('/').pop())); });
-  }, Promise.resolve());
+  if (q) {
+    var files = q.split(',');
+    files.reduce(function (prev, u) {
+      return prev.then(function () { return fetch(u); }).then(function (r) { return r.blob(); })
+        .then(function (b) { var f = new File([b], u.split('/').pop()); return isPersonFile(f) && current ? addPerson(f) : load(f); });
+    }, Promise.resolve()).then(function () {
+      var roles = DEMO_ROLES[params.get('demo')];
+      if (roles) { G.app.people.forEach(function (p) { if (roles[p.name]) p.role = roles[p.name]; }); renderPeople(); }
+    });
+  }
 })(globalThis.G = globalThis.G || {});

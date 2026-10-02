@@ -391,7 +391,37 @@
       specs.push({ curve: new T.CatmullRomCurve3(pts), radius: 0.02, color: G.roh.isAutosome(sg.chrom) ? (sg.long ? 0xffb000 : 0xffd060) : 0x8a7a50,
         item: { info: 'Run of homozygosity ' + sg.chrom + ':' + G.fmtBp(sg.start) + '-' + G.fmtBp(sg.end) + ' (' + (sg.length / 1e6).toFixed(1) + ' Mb)', region: { chrom: sg.chrom, start: sg.start, end: sg.end } } });
     });
+    // other people (people.js): their runs in their colour, a band further out each
+    var people = G.app.people || [];
+    people.forEach(function (p, pi) {
+      if (!pi || !p.visible) return;
+      var r = p.roh();
+      (r ? r.segments : []).forEach(function (sg) {
+        var a0 = self.angle(sg.key, sg.start), a1 = self.angle(sg.key, sg.end);
+        if (a0 === null || a1 === null) return;
+        var pts = [];
+        for (var k = 0; k <= 16; k++) pts.push(self.ringPoint(a0 + (a1 - a0) * k / 16, RING_Y - 0.03, RING_R + 0.09 + 0.05 * pi));
+        specs.push({ curve: new T.CatmullRomCurve3(pts), radius: 0.016, color: p.color,
+          item: { info: p.name + ': run of homozygosity ' + sg.chrom + ':' + G.fmtBp(sg.start) + '-' + G.fmtBp(sg.end) + ' (' + (sg.length / 1e6).toFixed(1) + ' Mb)', region: { chrom: sg.chrom, start: sg.start, end: sg.end } } });
+      });
+    });
     if (specs.length) { var rm = mergedTubes(T, specs, 16, 6); L.roh.add(rm); this.pickables.push(rm); }
+
+    // other people's findings: thinner towers in their colour, on a smaller ring each
+    people.forEach(function (p, pi) {
+      if (!pi || !p.visible) return;
+      p.findings().forEach(function (f) {
+        var ang = self.angle(nn(f.chrom), f.pos);
+        if (ang === null) return;
+        var cls = f.classification || '', h = 0.12 + 0.3 * (/^pathogenic/i.test(cls) ? 2 : /likely pathogenic/i.test(cls) ? 1.5 : 0.5), rr = RING_R - 0.1 - 0.08 * pi;
+        var tower = new T.Mesh(new T.CylinderGeometry(0.009, 0.009, h, 6), new T.MeshStandardMaterial({ color: p.color }));
+        tower.position.copy(self.ringPoint(ang, RING_Y + h / 2, rr));
+        var m = new T.Mesh(new T.OctahedronGeometry(0.035), new T.MeshStandardMaterial({ color: p.color, emissive: 0x111111 }));
+        m.position.copy(self.ringPoint(ang, RING_Y + h, rr));
+        var info = p.name + ': ' + f.gene + ', ' + cls + ', ' + (f.zygosity || '') + (f.variant_name ? '\n' + f.variant_name : '');
+        [tower, m].forEach(function (o) { o.userData.info = info; o.userData.region = { chrom: f.chrom, start: Math.max(1, f.pos - 60), end: f.pos + 60, gene: f.gene }; L.findings.add(o); self.pickables.push(o); });
+      });
+    });
 
     // Gene panel ring inside the main ring: one post per panel gene, coloured by how much
     // of it is callable (green complete, amber gaps, red poor, grey not judged).

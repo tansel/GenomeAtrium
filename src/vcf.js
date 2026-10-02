@@ -129,7 +129,7 @@
     var total = 0;
     // ClinVar matching only when the file is on the same build (Asclepius D3).
     var clinvar = opts.clinvar || null, clinvarStatus = clinvar ? null : 'no ClinVar table loaded';
-    var clinvarHits = [];
+    var clinvarHits = [], clinvarHitsBySample = {}; // [s] for samples 1 to 7 of a joint VCF
 
     function contigData(name) {
       var key = gm.normName(name);
@@ -212,15 +212,24 @@
         }
         if (di >= 0 && sv[di] && sv[di] !== '.') depth = +sv[di] || depth;
       }
-      var zyg = zygosity(gt), extraZyg = null;
+      var zyg = zygosity(gt), extraZyg = null, extraGt = null;
       if (f.length > 10) { // further samples, up to MAX_SAMPLES
         var gIdx = f[8].split(':').indexOf('GT');
-        extraZyg = [];
-        for (var sI = 10; sI < f.length && sI < 9 + MAX_SAMPLES; sI++) extraZyg.push(gIdx >= 0 ? zygosity(f[sI].split(':')[gIdx]) : Z.UNKNOWN);
+        extraZyg = []; extraGt = [];
+        for (var sI = 10; sI < f.length && sI < 9 + MAX_SAMPLES; sI++) {
+          var g2 = gIdx >= 0 ? f[sI].split(':')[gIdx] : null;
+          extraGt.push(g2); extraZyg.push(g2 ? zygosity(g2) : Z.UNKNOWN);
+        }
       }
       if (clinvar) {
         var hits = clinvar.matchRecord(chrom, pos, ref, altField, gt, f[6]);
         if (hits) for (var h = 0; h < hits.length; h++) clinvarHits.push(hits[h]);
+        // the other samples of a joint VCF (first 8): matched with their own genotype
+        if (extraGt) for (var sJ = 0; sJ < Math.min(extraGt.length, 7); sJ++) {
+          if (!extraGt[sJ]) continue;
+          var hs = clinvar.matchRecord(chrom, pos, ref, altField, extraGt[sJ], f[6]);
+          if (hs) { var bucket = clinvarHitsBySample[sJ + 1] || (clinvarHitsBySample[sJ + 1] = []); for (var h2 = 0; h2 < hs.length; h2++) bucket.push(hs[h2]); }
+        }
       }
 
       var alt = alts[0], type, svEnd = null, label;
@@ -293,7 +302,7 @@
       format: 'vcf', genome: genome, build: genome.build, binSize: binSize || 1000,
       samples: samples, meta: meta, stats: stats, isGvcf: stats.refBlocks > 0,
       variants: variants, tracks: tracks, arcs: arcs,
-      clinvarHits: clinvarHits, clinvarStatus: clinvarStatus || 'not matched: no variant records',
+      clinvarHits: clinvarHits, clinvarHitsBySample: clinvarHitsBySample, clinvarStatus: clinvarStatus || 'not matched: no variant records',
       aborted: !!(opts.signal && opts.signal.aborted)
     };
   }
