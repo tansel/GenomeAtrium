@@ -107,7 +107,7 @@
       var e = (list || []).find(function (x) { return x.uniprotAccession === acc; }) || (list || [])[0];
       if (!e) throw new Error('No AlphaFold model for ' + acc + ' (AlphaFold DB has none for human proteins over 2,700 residues)');
       var text = await fetch(e.cifUrl).then(function (r) { if (!r.ok) throw new Error('AlphaFold file: HTTP ' + r.status); return r.text(); });
-      return { acc: acc, entryId: e.entryId, version: e.latestVersion, model: parseCif(text) };
+      return { acc: acc, entryId: e.entryId, version: e.latestVersion, amUrl: e.amAnnotationsUrl || null, model: parseCif(text) };
     })();
     cache[acc].catch(function () { delete cache[acc]; });
     return cache[acc];
@@ -258,6 +258,31 @@
     };
   }
 
-  G.structure = { parseCif: parseCif, bonds: bonds, plddtColor: plddtColor, fetchModel: fetchModel,
+  // AlphaMissense for one protein (CSV from AlphaFold DB: protein_variant, am_pathogenicity,
+  // am_class): { byChange: {G551D: {score, cls}}, mean: {seq: mean over the substitutions} }.
+  function parseAlphaMissense(text) {
+    var byChange = {}, sum = {}, cnt = {};
+    text.split(/\r?\n/).forEach(function (l, i) {
+      if (!i || !l) return;
+      var f = l.split(','), m = /^([A-Z])(\d+)([A-Z])$/.exec(f[0]);
+      if (!m) return;
+      var sc = +f[1], seq = +m[2];
+      byChange[f[0]] = { score: sc, cls: f[2] };
+      sum[seq] = (sum[seq] || 0) + sc; cnt[seq] = (cnt[seq] || 0) + 1;
+    });
+    var mean = {};
+    Object.keys(sum).forEach(function (k) { mean[k] = sum[k] / cnt[k]; });
+    return { byChange: byChange, mean: mean };
+  }
+  var amCache = {};
+  function fetchAlphaMissense(url) {
+    if (!amCache[url]) {
+      amCache[url] = fetch(url).then(function (r) { if (!r.ok) throw new Error('AlphaMissense: HTTP ' + r.status); return r.text(); }).then(parseAlphaMissense);
+      amCache[url].catch(function () { delete amCache[url]; });
+    }
+    return amCache[url];
+  }
+
+  G.structure = { parseAlphaMissense: parseAlphaMissense, fetchAlphaMissense: fetchAlphaMissense, parseCif: parseCif, bonds: bonds, plddtColor: plddtColor, fetchModel: fetchModel,
     buildSideChain: buildSideChain, measureChis: measureChis, torsion: torsion, mutate: mutate, AA: AA, ONE: ONE };
 })(globalThis.G = globalThis.G || {});

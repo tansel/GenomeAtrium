@@ -28,7 +28,8 @@
   var VRBTN_URL = 'https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/webxr/VRButton.js/+esm';
   var RING_R = 3.2, RING_Y = 1.0, TAU = Math.PI * 2;
   var MOVE_SPEED = 0.9, TURN_SPEED = 0.7, SLIDE_SPEED = 0.6, SCALE_SPEED = 0.5; // m/s, rad/s (40 deg/s), log-scale/s
-  var ROOM_Z = -200, ROOM_START = 3.2; // the Landscape room, out of sight of the Atrium; viewer starts at its edge
+  var ROOM_Z = -200, ROOM_START = 3.2;
+  var PROT_X = 200, PROT_SCALE = 9; // the Protein room, out of sight too; the protein at 9x (about 5 m across) // the Landscape room, out of sight of the Atrium; viewer starts at its edge
 
   function hsl(i, n) { return new (G.THREE.Color)().setHSL((i / Math.max(1, n)) * 300 / 360, 0.7, 0.62); }
 
@@ -619,7 +620,7 @@
       }
       if (gp.buttons[4] && gp.buttons[4].pressed) self.resetPose();          // A or X
       if (gp.buttons[5]) { // B or Y: close the window; with none open, leave the Landscape room
-        if (gp.buttons[5].pressed && !self.backWasDown) { if (self.panel) self.closePanel(); else if (self.where === 'room') self.goPlace('atrium'); }
+        if (gp.buttons[5].pressed && !self.backWasDown) { if (self.panel) self.closePanel(); else if (self.where !== 'atrium') self.goPlace('atrium'); }
         self.backWasDown = gp.buttons[5].pressed;
       }
     });
@@ -675,7 +676,7 @@
 
   // Scale the genome (not the viewer) by factor k about a world point.
   Atrium.prototype.scaleAbout = function (p, k) {
-    var w = this.where === 'room' ? this.cloud : this.group;
+    var w = this.where === 'room' ? this.cloud : this.where === 'protein' && this.mol ? this.mol.root : this.group;
     if (!w) return;
     p = w.parent.worldToLocal(p.clone());
     var s0 = w.scale.x, s1 = Math.max(0.1, Math.min(20, s0 * k));
@@ -697,7 +698,8 @@
 
   // Where the viewer stands in each place.
   Atrium.prototype.origin = function (where) {
-    return where === 'room' ? new G.THREE.Vector3(0, 0, ROOM_Z + ROOM_START) : new G.THREE.Vector3(0, 0, 0);
+    var T = G.THREE;
+    return where === 'room' ? new T.Vector3(0, 0, ROOM_Z + ROOM_START) : where === 'protein' ? new T.Vector3(PROT_X, 0, 3.6) : new T.Vector3(0, 0, 0);
   };
 
   Atrium.prototype.openPanel = function (region) {
@@ -774,7 +776,7 @@
     var p = this.panel, ctx = p.tabCanvas.getContext('2d'), w = TAB_CW / TABS.length, cur = p.portalOn ? '3d' : G.app.view.panelMode, self = this;
     ctx.clearRect(0, 0, TAB_CW, TAB_H);
     TABS.forEach(function (t, i) {
-      var on = t[0] === cur, hot = i === p.hoverTab, name = t[0] === '3d' && self.where === 'room' ? 'Atrium' : t[1];
+      var on = t[0] === cur, hot = i === p.hoverTab, name = t[0] === '3d' && self.where !== 'atrium' ? 'Atrium' : t[1];
       ctx.fillStyle = on ? '#5ad2be' : hot ? 'rgba(90,210,190,0.35)' : 'rgba(20,20,30,0.9)';
       ctx.fillRect(i * w + 3, 6, w - 6, TAB_H - 10);
       ctx.fillStyle = on ? '#101014' : t[0] === 'close' ? '#ff9a8a' : '#fff';
@@ -853,6 +855,7 @@
 
   // Trigger (or a desktop click): wrist card, tabs, portal, screen, then the world.
   Atrium.prototype.select = function (src) {
+    if (this.choiceHit(src)) return;
     if (this.help && !this.helpPending) { this.showHelp(false); this.helpShown = 0; }
     var row = src ? this.filterCardHit(src) : -1;
     if (row >= 0) {
@@ -863,7 +866,7 @@
     if (this.mol) { this.aim(src); if (this.mol.click()) return; }
     var tab = this.tabHit(src);
     if (tab >= 0) { this.setPanelView(TABS[tab][0]); return; }
-    if (this.portalHit(src)) { this.goPlace(this.where === 'room' ? 'atrium' : 'room'); return; }
+    if (this.portalHit(src)) { this.goPlace(this.where === 'atrium' ? 'room' : 'atrium'); return; }
     var hp = this.screenHit(src);
     if (hp) {
       var g = G.app.view.g;
@@ -883,6 +886,14 @@
       return;
     }
     this.showTip(it.info, hit.point);
+    if (it.region && it.region.gene) { // a finding or a panel gene: offer the protein too
+      var self = this, gene = String(it.region.gene).split(/[;,]/)[0], region = it.region;
+      this.askChoice(hit.point, gene, [
+        { label: '3D protein, normal and variant side by side', fn: function () { self.showProtein(gene, { focus: true }); } },
+        { label: 'Protein room: step inside ' + gene, fn: function () { self.showProtein(gene, { focus: true }).then(function () { self.goPlace('protein'); }); } },
+        { label: 'Genome window (Arcs and the other views)', fn: function () { self.openPanel(region); } }]);
+      return;
+    }
     if (it.region) this.openPanel(it.region);
   };
 
@@ -910,17 +921,76 @@
     pv.load(gene); // UniProt lookup (cached); the Protein view starts it too, but only when it draws
     var p = pv.loaded && pv.loaded[gene];
     if (!p || (this.mol && this.mol.acc === p.acc)) return;
-    var T = G.THREE;
+    this.showProtein(gene);
+  };
+
+  // The protein of a gene in 3D, held near the viewer; with focus, zoomed to the sample's
+  // variant in it (side by side with the normal protein). Resolves once it is built.
+  Atrium.prototype.showProtein = async function (gene, opts) {
+    opts = opts || {};
+    var T = G.THREE, pv = G.app.proteinView;
+    gene = String(gene).split(/[;,]/)[0];
     if (!this.mol) { this.mol = new G.Molecule(this); this.dolly.add(this.mol.root); }
-    // held in front of the viewer, below eye level and to the right, so it does not hide the window
+    var mol = this.mol;
+    if (this.where !== 'protein') this.placeMolecule();
+    mol.gene = gene; mol.status = 'Looking up ' + gene + ' in UniProt...'; mol.drawCard();
+    var p;
+    try { p = await pv.load(gene); } catch (err) { mol.status = err.message; mol.drawCard(); return; }
+    if (mol.acc !== p.acc) await mol.load(gene, p);
+    if (opts.focus && mol.variants) {
+      var i = mol.variants.findIndex(function (v) { return v.source === 'sample'; });
+      if (i >= 0) mol.focusVariant(i);
+    }
+  };
+
+  // Held in front of the viewer, below eye level and to the right, so it does not hide the window.
+  Atrium.prototype.placeMolecule = function () {
+    var T = G.THREE, root = this.mol.root;
+    if (root.parent !== this.dolly) this.dolly.attach(root);
     var head = this.camera.position.clone(), dir = new T.Vector3(0, 0, -1).applyQuaternion(this.camera.quaternion);
     dir.y = 0; dir.normalize();
     var right = new T.Vector3(-dir.z, 0, dir.x);
-    this.mol.root.position.copy(head).addScaledVector(dir, 0.8).addScaledVector(right, 0.35);
-    this.mol.root.position.y = head.y - 0.3;
-    this.mol.root.lookAt(this.dolly.localToWorld(head.clone()));
-    this.mol.root.scale.setScalar(1);
-    this.mol.load(gene, p);
+    root.position.copy(head).addScaledVector(dir, 0.8).addScaledVector(right, 0.35);
+    root.position.y = head.y - 0.3;
+    root.quaternion.identity(); root.lookAt(this.dolly.localToWorld(head.clone()));
+    root.scale.setScalar(1);
+    this.mol.cardHome();
+  };
+
+  // A small card of choices by a picked object: [{label, fn}], plus Cancel.
+  Atrium.prototype.askChoice = function (point, title, options) {
+    var T = G.THREE;
+    this.closeChoice();
+    options = options.concat([{ label: 'Cancel', fn: function () {} }]);
+    var W = 900, ROW = 78, c = document.createElement('canvas'); c.width = W; c.height = 80 + ROW * options.length;
+    var ctx = c.getContext('2d');
+    ctx.fillStyle = 'rgba(14,14,22,0.95)'; ctx.fillRect(0, 0, W, c.height);
+    ctx.strokeStyle = '#5ad2be'; ctx.lineWidth = 5; ctx.strokeRect(3, 3, W - 6, c.height - 6);
+    ctx.fillStyle = '#5ad2be'; ctx.font = 'bold 38px Helvetica, Arial, sans-serif'; ctx.textBaseline = 'middle'; ctx.fillText(title, 28, 42);
+    options.forEach(function (o, i) {
+      var y = 80 + i * ROW;
+      ctx.fillStyle = o.label === 'Cancel' ? 'rgba(90,40,40,0.9)' : 'rgba(40,44,58,0.95)'; ctx.fillRect(20, y + 6, W - 40, ROW - 12);
+      ctx.fillStyle = '#fff'; ctx.font = '34px Helvetica, Arial, sans-serif'; ctx.fillText(o.label, 44, y + ROW / 2);
+    });
+    var tex = new T.CanvasTexture(c); tex.colorSpace = T.SRGBColorSpace;
+    var w = 0.55, m = new T.Mesh(new T.PlaneGeometry(w, w * c.height / W), new T.MeshBasicMaterial({ map: tex, transparent: true, depthTest: false, side: T.DoubleSide }));
+    m.renderOrder = 40;
+    var cam = this.camera.getWorldPosition(new T.Vector3());
+    m.position.copy(point).lerp(cam, 0.35); m.lookAt(cam);
+    this.scene.add(m);
+    this.choice = { mesh: m, options: options, rowFrac: ROW / c.height, headFrac: 80 / c.height };
+  };
+  Atrium.prototype.closeChoice = function () { if (this.choice) { this.scene.remove(this.choice.mesh); this.choice = null; } };
+  // A trigger or click while a choice card is up: run the option hit, or close the card.
+  Atrium.prototype.choiceHit = function (src) {
+    if (!this.choice) return false;
+    this.aim(src);
+    var ch = this.choice, hit = this.raycaster.intersectObject(ch.mesh, false)[0];
+    this.closeChoice();
+    if (!hit || !hit.uv) return false; // a click elsewhere just closes it
+    var row = Math.floor((1 - hit.uv.y - ch.headFrac) / ch.rowFrac);
+    if (row >= 0 && row < ch.options.length) ch.options[row].fn();
+    return true;
   };
   Atrium.prototype.closeMolecule = function () {
     if (!this.mol) return;
@@ -965,18 +1035,37 @@
   // Move the viewer between the Atrium and the Landscape room.
   Atrium.prototype.goPlace = function (where) {
     if (where === this.where) return;
-    this.closePanel();
+    if (where === 'protein' && !this.mol) return;
+    this.closePanel(); this.closeChoice();
+    var leaving = this.where;
     this.where = where;
     this.showTip(null);
+    if (where === 'protein') this.enterProteinRoom(); else if (leaving === 'protein' && this.mol) this.placeMolecule();
     if (this.renderer.xr.isPresenting) this.resetPose();
     else { // desktop: move the orbit camera and its target
       if (where === 'room') { this.camera.position.set(0, 2.2, ROOM_Z + 6.5); this.controls.target.set(0, 1.5, ROOM_Z); }
+      else if (where === 'protein') { this.camera.position.set(PROT_X, 2.0, 6.0); this.controls.target.set(PROT_X, 1.6, 0); }
       else this.homeView();
     }
     var h = document.getElementById('help');
     if (h && G.app.view.mode === 'atrium') h.textContent = where === 'room'
       ? 'Landscape room: every dot is a genome window, placed by PCA; threads join neighbours on a chromosome. Click a dot to open it. The sign (or B/Y in VR) goes back.'
+      : where === 'protein' ? 'Protein room: the protein at room size, normal and variant side by side at a site. Walk around and into it; the card is beside you. B/Y (or the card) goes back.'
       : 'Atrium: drag to orbit, wheel to zoom, click an object to open it in a window with view tabs';
+  };
+
+  // The Protein room: the protein at 9x in its own place, with a floor; its card stands
+  // beside the viewer at normal size.
+  Atrium.prototype.enterProteinRoom = function () {
+    var T = G.THREE, root = this.mol.root;
+    if (!this.protRoom) {
+      this.protRoom = new T.Group(); this.protRoom.position.set(PROT_X, 0, 0); this.scene.add(this.protRoom);
+      var floor = new T.Mesh(new T.CircleGeometry(8, 64), new T.MeshBasicMaterial({ color: 0x15151d }));
+      floor.rotation.x = -Math.PI / 2; this.protRoom.add(floor);
+    }
+    this.protRoom.add(root);
+    root.position.set(0, 1.7, 0); root.quaternion.identity(); root.scale.setScalar(PROT_SCALE);
+    this.mol.cardAway(this.protRoom, new T.Vector3(-0.9, 1.05, 2.6));
   };
 
   // The Landscape room: the Landscape cloud at room size, around the viewer.

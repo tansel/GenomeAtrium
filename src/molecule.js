@@ -14,6 +14,18 @@
  *    with, and the change in class, size, hydropathy, burial and confidence;
  *  - stop-gain and frameshift: the part of the chain after the site greyed.
  * These are physical facts about the model. There is no pathogenicity call.
+ *
+ * Side by side (the default at a site): two linked copies, the normal model
+ * on the left and the variant on the right (the modelled side chain, or the
+ * chain cut at a stop or frameshift). They turn and zoom together. The right
+ * copy is the same model with that change only: AlphaFold predicts one
+ * structure, of the normal protein, so for a missense change the two differ
+ * at that residue alone. "Overlay" puts both on one copy instead.
+ *
+ * AlphaMissense (Cheng et al. 2023, served by AlphaFold DB with the model):
+ * a predicted pathogenicity for every possible missense change. As a colour,
+ * each residue's mean over its 19 substitutions; at a site, the score and
+ * class of that change. A published prediction, shown as such.
  */
 (function (G) {
   var CPK = { C: 0x9a9a9a, N: 0x3050f8, O: 0xff2a2a, S: 0xffd02a };
@@ -25,10 +37,15 @@
     var T = G.THREE;
     this.atrium = atrium;
     this.root = new T.Group();   // placed in the room; grabbed by the grip
-    this.spin = new T.Group();   // turns about the focus point
-    this.inner = new T.Group();  // model coordinates (Angstrom), scaled and shifted so the focus sits at the root
-    this.root.add(this.spin); this.spin.add(this.inner);
-    this.style = 'cartoon'; this.colorBy = 'plddt'; this.show = 'both';
+    // left copy (normal): anchor -> spin (turns about the focus) -> inner (model coordinates
+    // in Angstrom, scaled and shifted so the focus sits at the anchor); right copy (variant)
+    // the same, linked to the left each frame
+    this.anchorL = new T.Group(); this.spin = new T.Group(); this.inner = new T.Group();
+    this.anchorR = new T.Group(); this.spinR = new T.Group(); this.innerR = new T.Group();
+    this.root.add(this.anchorL); this.anchorL.add(this.spin); this.spin.add(this.inner);
+    this.root.add(this.anchorR); this.anchorR.add(this.spinR); this.spinR.add(this.innerR);
+    this.anchorR.visible = false;
+    this.style = 'cartoon'; this.colorBy = 'plddt'; this.show = 'both'; this.layout = 'side';
     this.scale = 0.01; this.targetScale = 0.01;
     this.focus = new T.Vector3(); this.targetFocus = new T.Vector3();
     this.labels = [];
@@ -80,7 +97,8 @@
     var self = this;
     this.atrium.pickables = this.atrium.pickables.filter(function (o) { return !o.userData.molecule; });
     while (this.inner.children.length) this.inner.remove(this.inner.children[0]);
-    this.labels = [];
+    while (this.innerR.children.length) this.innerR.remove(this.innerR.children[0]);
+    this.labels = []; this.am = null; this.amLoading = null;
     ['cartoon', 'atoms', 'bondMesh', 'markers', 'site'].forEach(function (k) { self[k] = null; });
   };
 
@@ -95,12 +113,13 @@
     c.multiplyScalar(1 / R.length); this.center = c;
     var d = R.map(function (r) { return Math.hypot(A.x[r.ca] - c.x, A.y[r.ca] - c.y, A.z[r.ca] - c.z); }).sort(function (a, b) { return a - b; });
     this.r95 = d[Math.floor(0.95 * (d.length - 1))] || 20;
+    this.rMax = d[d.length - 1] || this.r95; // loose loops can reach well past r95
     this.resIndex = {}; R.forEach(function (r, i) { self.resIndex[r.seq] = i; });
     this.items = R.map(function (r) {
       var v = (self.variantsAt || {})[r.seq];
       return { info: self.gene + ' ' + r.name[0] + r.name.slice(1).toLowerCase() + r.seq + '  pLDDT ' + Math.round(r.plddt) + ', ' + { H: 'helix', E: 'strand', C: 'loop' }[r.ss], residue: r.seq };
     });
-    this.buildCartoon(); this.buildAtoms(); this.buildMarkers();
+    this.buildCartoon(); this.buildAtoms(); this.buildMarkers(); this.buildTwin();
     this.applyStyle(); this.recolor();
   };
 
@@ -177,6 +196,36 @@
     this.inner.add(atoms); this.inner.add(bonds);
   };
 
+  // The right copy: the same geometry, colours and materials (no extra memory for the
+  // model), with its own draw range so a truncated chain can stop at the site.
+  Molecule.prototype.buildTwin = function () {
+    var T = G.THREE, self = this;
+    if (!this.cartoon) return;
+    var g0 = this.cartoon.geometry, g = new T.BufferGeometry();
+    Object.keys(g0.attributes).forEach(function (k) { g.setAttribute(k, g0.attributes[k]); });
+    g.setIndex(g0.index);
+    this.cartoonR = new T.Mesh(g, this.cartoon.material);
+    this.atomsR = new T.InstancedMesh(this.atoms.geometry, this.atoms.material, this.atoms.count);
+    this.atomsR.instanceMatrix = this.atoms.instanceMatrix; this.atomsR.instanceColor = this.atoms.instanceColor;
+    this.bondsR = new T.InstancedMesh(this.bondMesh.geometry, this.bondMesh.material, this.bondMesh.count);
+    this.bondsR.instanceMatrix = this.bondMesh.instanceMatrix;
+    [[this.cartoonR, this.cartoon], [this.atomsR, this.atoms]].forEach(function (pair) { pair[0].userData = pair[1].userData; });
+    this.bondPairs = G.structure.bonds(this.model.atoms); // bond i joins atoms 2i, 2i+1
+    [this.cartoonR, this.atomsR, this.bondsR].forEach(function (o) { o.frustumCulled = false; self.innerR.add(o); });
+  };
+
+  // The right copy ends at residue seq (a stop or frameshift); null shows it whole.
+  Molecule.prototype.cutTwin = function (seq) {
+    if (!this.cartoonR) return;
+    var ri = seq === null ? Infinity : this.resIndex[seq], resOf = this.cartoonRes, A = this.model.atoms;
+    var sMax = resOf.length; for (var s0 = 0; s0 < resOf.length; s0++) if (resOf[s0] >= ri) { sMax = s0; break; }
+    this.cartoonR.geometry.setDrawRange(0, seq === null ? Infinity : Math.max(0, sMax - 1) * PROFILE * 6);
+    var aMax = A.n; for (var a = 0; a < A.n; a++) if (this.atomRes[a] >= ri) { aMax = a; break; }
+    this.atomsR.count = aMax;
+    var bp = this.bondPairs, bMax = bp.length / 2; for (var b = 0; b < bp.length / 2; b++) if (bp[2 * b] >= aMax) { bMax = b; break; }
+    this.bondsR.count = bMax;
+  };
+
   Molecule.prototype.buildMarkers = function () {
     var T = G.THREE, self = this, V = this.variants, A = this.model.atoms;
     if (!V.length) return;
@@ -199,19 +248,41 @@
 
   // ----- style and colour
 
+  // AlphaMissense: blue (likely benign) through grey to red (likely pathogenic).
+  function amColor(x) {
+    var T = G.THREE, lo = new T.Color(0x3b6fd8), mid = new T.Color(0x9a9aa2), hi = new T.Color(0xe8423a);
+    return x < 0.5 ? lo.clone().lerp(mid, x / 0.5) : mid.clone().lerp(hi, (x - 0.5) / 0.5);
+  }
+  var AM_CLASS = { LBen: 'likely benign', Amb: 'ambiguous', LPath: 'likely pathogenic' };
+
+  Molecule.prototype.loadAm = function () {
+    var self = this;
+    if (this.am || this.amLoading || !this.entry || !this.entry.amUrl) return this.amLoading || Promise.resolve(this.am);
+    this.amLoading = G.structure.fetchAlphaMissense(this.entry.amUrl).then(function (am) {
+      self.am = am; self.amLoading = null; self.recolor(); self.drawCard(); return am;
+    }, function (err) { self.amLoading = null; self.amError = err.message; self.drawCard(); });
+    return this.amLoading;
+  };
+
   Molecule.prototype.applyStyle = function () {
     var a = this.atrium, self = this;
     if (!this.cartoon) return;
     this.cartoon.visible = this.style !== 'atoms';
     this.atoms.visible = this.bondMesh.visible = this.style !== 'cartoon';
-    a.pickables = a.pickables.filter(function (o) { return o !== self.cartoon && o !== self.atoms; });
-    if (this.cartoon.visible) a.pickables.push(this.cartoon);
-    if (this.atoms.visible) a.pickables.push(this.atoms);
+    if (this.cartoonR) { this.cartoonR.visible = this.cartoon.visible; this.atomsR.visible = this.bondsR.visible = this.atoms.visible; }
+    a.pickables = a.pickables.filter(function (o) { return o !== self.cartoon && o !== self.atoms && o !== self.cartoonR && o !== self.atomsR; });
+    if (this.cartoon.visible) a.pickables.push(this.cartoon, this.cartoonR);
+    if (this.atoms.visible) a.pickables.push(this.atoms, this.atomsR);
+    if (this.cur >= 0) this.applyFocusLook(); // keeps the side-by-side framing
   };
 
   Molecule.prototype.residueColor = function (r) {
     var T = G.THREE;
-    if (this.cut && r.seq > this.cut) return new T.Color(0x3a3d44); // lost after a stop or frameshift
+    if (this.cut && this.layout === 'overlay' && r.seq > this.cut) return new T.Color(0x3a3d44); // overlay: lost part greyed (side by side cuts the right copy)
+    if (this.colorBy === 'am') {
+      var m = this.am && this.am.mean[r.seq];
+      return m === undefined || m === null ? new T.Color(0x5a5f6a) : amColor(m);
+    }
     if (this.colorBy === 'ss') return new T.Color(SS_COL[r.ss]);
     if (this.colorBy === 'domain') {
       var ds = this.prot.domains || [];
@@ -230,7 +301,7 @@
     var T = G.THREE, tmp = new T.Color();
     for (var i = 0; i < A.n; i++) { // carbon takes the residue colour, other elements their own (as in PyMOL)
       var r = R[this.atomRes[i]];
-      if (this.cut && r.seq > this.cut) tmp.set(0x3a3d44); else if (A.el[i] === 'C') tmp.copy(rc[this.atomRes[i]]); else tmp.set(CPK[A.el[i]] || 0xdddddd);
+      if (this.cut && this.layout === 'overlay' && r.seq > this.cut) tmp.set(0x3a3d44); else if (A.el[i] === 'C') tmp.copy(rc[this.atomRes[i]]); else tmp.set(CPK[A.el[i]] || 0xdddddd);
       this.atoms.setColorAt(i, tmp);
     }
     this.atoms.instanceColor.needsUpdate = true;
@@ -239,7 +310,8 @@
   // ----- focus: the whole protein, or one variant site
 
   Molecule.prototype.whole = function () {
-    this.cur = -1; this.cut = null;
+    this.cur = -1; this.cut = null; this.cutTwin(null); this.twinMode = null;
+    if (this.cartoon) this.cartoon.geometry.setDrawRange(0, Infinity);
     this.targetScale = WHOLE_RADIUS / this.r95; this.targetFocus.set(0, 0, 0);
     this.clearSite(); this.recolor(); this.applyFocusLook(); this.drawCard();
   };
@@ -254,14 +326,24 @@
     var v = this.variants[i], r = this.model.bySeq[v.pos];
     if (!r) return;
     this.cur = i; this.spinning = false;
-    this.targetScale = FOCUS_SPAN / 14; this.targetFocus.copy(this.pos(r.ca));
     this.cut = v.kind === 'missense' ? null : v.pos;
+    // side by side: a missense change is compared up close (the local backbone and the
+    // residue's neighbourhood in each copy); a truncation as whole proteins, full and cut
+    this.twinMode = v.kind === 'missense' ? 'site' : 'trunc';
+    if (this.layout === 'side' && this.twinMode === 'trunc') { this.targetScale = WHOLE_RADIUS / this.r95; this.targetFocus.set(0, 0, 0); }
+    else { this.targetScale = FOCUS_SPAN / 14; this.targetFocus.copy(this.pos(r.ca)); }
+    this.siteSeq = v.pos;
     this.change = v.kind === 'missense' && v.alt ? G.structure.mutate(this.model, v.pos, v.alt) : null;
+    this.cutTwin(this.cut);
+    if (v.kind === 'missense') this.loadAm(); // the change's AlphaMissense score, for the card
     this.recolor(); this.buildSite(v, r); this.applyFocusLook(); this.drawCard();
   };
 
   Molecule.prototype.clearSite = function () {
     if (this.site) { this.inner.remove(this.site); this.site = null; }
+    if (this.siteR) { this.innerR.remove(this.siteR); this.siteR = null; }
+    var self = this;
+    ['capL', 'capR'].forEach(function (k) { if (self[k]) { self[k].parent.remove(self[k]); self[k] = null; } });
   };
 
   // The site: the residue's own side chain (normal), the modelled one (variant),
@@ -309,40 +391,88 @@
       ch.clashes.forEach(function (k) { if (hit[k.with]) return; hit[k.with] = 1; variant.add(ball(self.pos(k.with), 0.7, 0xff2020, 0.6)); });
     }
     site.add(variant); this.variantGroup = variant;
-    var lb = G.Atrium.label(T, v.short + (ch ? '  ' + ch.ref + ' > ' + ch.alt : v.kind === 'missense' ? '' : '  ' + v.kind + ': chain greyed after ' + v.pos), '#fff', 1);
+    var lb = G.Atrium.label(T, v.short + (ch ? '  ' + ch.ref + ' > ' + ch.alt : v.kind === 'missense' ? '' : '  ' + v.kind + (this.layout === 'side' ? ' at ' + v.pos : ': chain greyed after ' + v.pos)), '#fff', 1);
     lb.position.copy(ca).add(new T.Vector3(0, 5, 0)); lb.userData.base = 0.06; this.labels.push(lb); site.add(lb);
+    // the right copy: the same neighbourhood, with the variant (the modelled side chain;
+    // for a truncation the cut chain itself is the difference)
+    var siteR = this.siteR = new T.Group(); this.innerR.add(siteR);
+    siteR.add(env.clone());
+    siteR.add(ch ? variant.clone() : normal.clone());
+    // captions over each copy, in the room's scale (not the model's)
+    var capText = v.kind === 'missense' ? 'Variant ' + v.short + (ch ? ' (modelled)' : '') : 'Variant ' + v.short + ': ends at ' + v.pos;
+    var capY = this.twinMode === 'trunc' ? WHOLE_RADIUS + 0.06 : 0.26;
+    this.capL = G.Atrium.label(T, 'Normal', '#cfe', 0.03); this.capL.position.set(0, capY, 0); this.anchorL.add(this.capL);
+    this.capR = G.Atrium.label(T, capText, '#f6c', 0.03); this.capR.position.set(0, capY, 0); this.anchorR.add(this.capR);
     this.applyShow();
   };
 
   // At a site the rest of the protein fades and the other markers hide, so the site's
   // atoms stand out; the whole view brings them back.
+  // Cartoon samples covering residues seq a to b (sequence numbers), as an index draw range.
+  Molecule.prototype.segmentRange = function (a, b) {
+    var resOf = this.cartoonRes, lo = this.resIndex[a], hi = this.resIndex[b], s0 = 0, s1 = resOf.length;
+    if (lo === undefined) lo = 0; if (hi === undefined) hi = this.model.residues.length - 1;
+    for (var s = 0; s < resOf.length; s++) if (resOf[s] >= lo) { s0 = s; break; }
+    for (s = s0; s < resOf.length; s++) if (resOf[s] > hi) { s1 = s; break; }
+    return [s0 * PROFILE * 6, Math.max(0, s1 - 1 - s0) * PROFILE * 6];
+  };
+
   Molecule.prototype.applyFocusLook = function () {
-    var site = this.cur >= 0;
+    var site = this.cur >= 0, twin = this.twinOn(), local = twin && this.twinMode === 'site';
+    var fade = site && !twin; // overlay: the rest fades; side by side: nothing fades
     [this.cartoon, this.atoms, this.bondMesh].forEach(function (o) {
       if (!o) return;
-      o.material.transparent = site; o.material.opacity = site ? 0.22 : 1; o.material.depthWrite = !site; o.material.needsUpdate = true;
+      o.material.transparent = fade; o.material.opacity = fade ? 0.22 : 1; o.material.depthWrite = !fade; o.material.needsUpdate = true;
     });
+    // up close side by side: only the local backbone (15 residues either side) in each copy,
+    // plus the site groups; whole proteins would overlap each other at this scale
+    if (this.cartoon) {
+      if (local) {
+        var R = this.segmentRange(this.siteSeq - 15, this.siteSeq + 15);
+        this.cartoon.geometry.setDrawRange(R[0], R[1]); this.cartoonR.geometry.setDrawRange(R[0], R[1]);
+      } else { this.cartoon.geometry.setDrawRange(0, Infinity); this.cutTwin(twin ? this.cut : null); }
+      var showAtoms = this.style !== 'cartoon' && !local;
+      this.atoms.visible = this.bondMesh.visible = showAtoms;
+      if (this.atomsR) this.atomsR.visible = this.bondsR.visible = showAtoms;
+    }
     if (this.markers) this.markers.visible = !site;
     var self = this;
     this.labels.forEach(function (l) { if (!self.site || l.parent !== self.site) l.visible = !site; });
   };
 
   Molecule.prototype.applyShow = function () {
-    if (this.normalGroup) this.normalGroup.visible = this.show !== 'variant';
-    if (this.variantGroup) this.variantGroup.visible = this.show !== 'normal';
+    var side = this.layout === 'side';
+    if (this.normalGroup) this.normalGroup.visible = side || this.show !== 'variant';
+    if (this.variantGroup) this.variantGroup.visible = !side && this.show !== 'normal'; // side by side: the variant is on the right copy
+    if (this.capL) this.capL.visible = side;
+    this.recolor();
+    if (this.cur >= 0) { // the layout changes how the site is framed
+      var v = this.variants[this.cur];
+      if (side && this.twinMode === 'trunc') { this.targetScale = WHOLE_RADIUS / this.r95; this.targetFocus.set(0, 0, 0); }
+      else if (v) { this.targetScale = FOCUS_SPAN / 14; this.targetFocus.copy(this.pos(this.model.bySeq[v.pos].ca)); }
+      this.applyFocusLook();
+    }
+  };
+  Molecule.prototype.twinOn = function () { return this.layout === 'side' && this.cur >= 0 && !!this.cartoonR; };
+  // Half the gap between the two copies' centres.
+  Molecule.prototype.twinSep = function () {
+    if (!this.twinOn()) return 0;
+    return this.twinMode === 'site' ? 0.3 : this.rMax * WHOLE_RADIUS / this.r95 + 0.06; // whole proteins: never overlapping
   };
 
   // ----- the card: what is shown, and buttons
 
-  var CW = 1280, CH = 470, BTN = [
+  var CW = 1280, CH = 580, BTN = [
     { row: 0, k: 'style:cartoon', t: 'Cartoon' }, { row: 0, k: 'style:atoms', t: 'Atoms' }, { row: 0, k: 'style:both', t: 'Both' },
-    { row: 0, k: 'color:plddt', t: 'Confidence' }, { row: 0, k: 'color:ss', t: 'Structure' }, { row: 0, k: 'color:domain', t: 'Domains' },
+    { row: 0, k: 'color:plddt', t: 'Confidence' }, { row: 0, k: 'color:ss', t: 'Structure' }, { row: 0, k: 'color:domain', t: 'Domains' }, { row: 0, k: 'color:am', t: 'AlphaMissense' },
     { row: 1, k: 'whole', t: 'Whole protein' }, { row: 1, k: 'prev', t: '< Variant' }, { row: 1, k: 'next', t: 'Variant >' },
-    { row: 1, k: 'show:normal', t: 'Normal' }, { row: 1, k: 'show:variant', t: 'Variant' }, { row: 1, k: 'show:both', t: 'Both' }, { row: 1, k: 'close', t: 'Close' }
+    { row: 1, k: 'close', t: 'Close' },
+    { row: 2, k: 'layout:side', t: 'Side by side' }, { row: 2, k: 'layout:overlay', t: 'Overlay' },
+    { row: 2, k: 'show:normal', t: 'Normal' }, { row: 2, k: 'show:variant', t: 'Variant' }, { row: 2, k: 'show:both', t: 'Both' }, { row: 2, k: 'room', t: 'Protein room' }
   ];
   (function layout() {
-    var x = [24, 24];
-    BTN.forEach(function (b) { b.w = b.t.length * 17 + 34; b.x = x[b.row]; x[b.row] += b.w + 10; b.y = CH - (2 - b.row) * 74 + 6; b.h = 60; });
+    var x = [24, 24, 24];
+    BTN.forEach(function (b) { b.w = b.t.length * 17 + 34; b.x = x[b.row]; x[b.row] += b.w + 10; b.y = CH - (3 - b.row) * 74 + 6; b.h = 60; });
   })();
 
   Molecule.prototype.makeCard = function () {
@@ -352,6 +482,15 @@
     m.position.set(0, -WHOLE_RADIUS - 0.16, 0); m.userData.molecule = true; m.renderOrder = 18; // over the zoomed protein
     this.cardMesh = m; this.cardCanvas = c; this.cardTex = tex;
     this.root.add(m);
+  };
+
+  // In the Protein room the card stands beside the viewer at normal size; cardHome puts it
+  // back under the protein.
+  Molecule.prototype.cardAway = function (parent, pos) {
+    parent.add(this.cardMesh); this.cardMesh.position.copy(pos); this.cardMesh.rotation.set(0, 0.35, 0); this.cardMesh.scale.setScalar(1.4);
+  };
+  Molecule.prototype.cardHome = function () {
+    this.root.add(this.cardMesh); this.cardMesh.position.set(0, -WHOLE_RADIUS - 0.16, 0); this.cardMesh.rotation.set(0, 0, 0); this.cardMesh.scale.setScalar(1);
   };
 
   Molecule.prototype.drawCard = function () {
@@ -371,8 +510,10 @@
           lines.push(ch.ref + ' (' + ch.refClass + ') to ' + ch.alt + ' (' + ch.altClass + '); size ' + (ch.dVolume >= 0 ? '+' : '') + Math.round(ch.dVolume) + ' A3, hydropathy ' + (ch.dHydropathy >= 0 ? '+' : '') + ch.dHydropathy.toFixed(1));
           lines.push('Site ' + ch.buried + ' (' + ch.near + ' atoms within 10 A), ' + { H: 'helix', E: 'strand', C: 'loop' }[ch.ss] + ', pLDDT ' + Math.round(ch.plddt) +
             '. Modelled ' + ch.alt + ': ' + (ch.clashes.length ? ch.clashes.length + ' contacts under 3 A (red)' : 'no contacts under 3 A'));
-          lines.push('Normal: the model\'s own residue. Variant (magenta): ideal geometry, common rotamer, not a prediction.');
-        } else if (v.kind !== 'missense') lines.push(v.kind + ' at ' + v.pos + ': residues after it greyed, ' + Math.round(100 * (1 - v.pos / this.model.residues.length)) + '% of the chain.');
+          var amv = this.am && this.am.byChange[v.short];
+          lines.push('AlphaMissense ' + v.short + ': ' + (amv ? amv.score.toFixed(2) + ' (' + AM_CLASS[amv.cls] + '), a published prediction' : this.amLoading ? 'loading...' : this.amError ? 'unavailable' : 'not listed') +
+            '. Variant copy: this model with the modelled side chain only; AlphaFold predicts one structure, the normal one.');
+        } else if (v.kind !== 'missense') lines.push(v.kind + ' at ' + v.pos + ': ' + Math.round(100 * (1 - v.pos / this.model.residues.length)) + '% of the chain lost (' + (this.layout === 'side' ? 'the right copy ends there' : 'greyed') + '). A frameshift may add residues first; not shown.');
         else lines.push('Missense with no single new residue named; site shown.');
       } else lines.push('Pick a marker, or use the Variant buttons, to zoom to a site and compare normal and variant.');
     }
@@ -381,7 +522,7 @@
     ctx.fillStyle = '#fff'; ctx.font = '25px Helvetica, Arial, sans-serif';
     lines.forEach(function (t, i) { ctx.fillText(t.length > 96 ? t.slice(0, 94) + '..' : t, 24, 62 + i * 33); });
     BTN.forEach(function (b) {
-      var kv = b.k.split(':'), on = kv[1] && self[{ style: 'style', color: 'colorBy', show: 'show' }[kv[0]]] === kv[1];
+      var kv = b.k.split(':'), on = kv[1] && self[{ style: 'style', color: 'colorBy', show: 'show', layout: 'layout' }[kv[0]]] === kv[1];
       ctx.fillStyle = on ? '#5ad2be' : b.k === 'close' ? 'rgba(120,40,40,0.9)' : 'rgba(40,44,58,0.95)'; ctx.fillRect(b.x, b.y, b.w, b.h);
       ctx.fillStyle = on ? '#101014' : '#fff'; ctx.font = (on ? 'bold ' : '') + '25px Helvetica, Arial, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
       ctx.fillText(b.t, b.x + b.w / 2, b.y + b.h / 2); ctx.textAlign = 'left'; ctx.textBaseline = 'top';
@@ -397,8 +538,10 @@
     if (!b) return true;
     var kv = b.k.split(':');
     if (kv[0] === 'style') { this.style = kv[1]; this.applyStyle(); }
-    else if (kv[0] === 'color') { this.colorBy = kv[1]; this.recolor(); }
+    else if (kv[0] === 'color') { this.colorBy = kv[1]; if (kv[1] === 'am') this.loadAm(); this.recolor(); }
     else if (kv[0] === 'show') { this.show = kv[1]; this.applyShow(); }
+    else if (kv[0] === 'layout') { this.layout = kv[1]; this.applyShow(); }
+    else if (b.k === 'room') { this.atrium.goPlace(this.atrium.where === 'protein' ? 'atrium' : 'protein'); return true; }
     else if (b.k === 'whole') this.whole();
     else if (b.k === 'prev') this.step(-1);
     else if (b.k === 'next') this.step(1);
@@ -434,7 +577,8 @@
   // Is the ray (already aimed) pointing at the molecule? Tests its bounding sphere only.
   Molecule.prototype.aimed = function () {
     var T = G.THREE, c = new T.Vector3(); this.root.getWorldPosition(c);
-    return this.atrium.raycaster.ray.intersectsSphere(new T.Sphere(c, WHOLE_RADIUS * this.root.getWorldScale(new T.Vector3()).x));
+    var r = WHOLE_RADIUS + this.twinSep(); // two copies side by side are wider
+    return this.atrium.raycaster.ray.intersectsSphere(new T.Sphere(c, r * this.root.getWorldScale(new T.Vector3()).x));
   };
 
   Molecule.prototype.update = function (dt) {
@@ -443,8 +587,15 @@
     this.focus.lerp(this.targetFocus, k);
     this.inner.scale.setScalar(this.scale);
     this.inner.position.copy(this.focus).multiplyScalar(-this.scale);
+    var twin = this.twinOn(), sep = this.twinSep();
+    this.anchorR.visible = twin;
+    this.anchorL.position.x += (-sep - this.anchorL.position.x) * k;
+    this.anchorR.position.x = -this.anchorL.position.x;
+    this.spinR.quaternion.copy(this.spin.quaternion);
+    this.innerR.scale.copy(this.inner.scale); this.innerR.position.copy(this.inner.position);
     if (this.spinning !== false && this.cur < 0 && !this.held) this.spin.rotation.y += dt * 0.12;
-    this.labels.forEach(function (l) { var b = l.userData.base / self.scale; l.scale.set(b * l.userData.aspect, b, 1); });
+    var rs = this.root.scale.x || 1; // the Protein room scales the whole protein; labels keep their size
+    this.labels.forEach(function (l) { var b = l.userData.base / self.scale / rs; l.scale.set(b * l.userData.aspect, b, 1); });
   };
 
   G.Molecule = Molecule;
