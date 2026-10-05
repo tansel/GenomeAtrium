@@ -1214,7 +1214,18 @@
   G.app.hilbert = new G.Hilbert(); G.app.hilbert.install(view.g.canvas);
   G.app.circos = new G.Circos();
   G.app.geneView = new G.GeneView();
-  G.app.proteinView = new G.ProteinView();
+  G.app.proteinView = new G.ProteinView(); G.app.proteinView.install(view.g.canvas);
+  // The Protein view's 3D buttons: the gene's AlphaFold model in the Atrium, zoomed to the
+  // sample's variant beside the normal protein, or in the Protein room.
+  G.app.openProtein3D = async function (gene, room) {
+    focusGene(gene, false);
+    if (view.mode !== 'atrium') setMode('atrium');
+    for (var i = 0; i < 300 && !(atrium && atrium.group); i++) await new Promise(function (r) { setTimeout(r, 50); });
+    if (!atrium || !atrium.group) return;
+    await atrium.showProtein(gene, { focus: true });
+    if (room) atrium.goPlace('protein');
+    $('placeBack').hidden = atrium.where === 'atrium';
+  };
   function renderHilbertLayers() {
     var h = G.app.hilbert;
     $('hilbertLayers').innerHTML = (h.layers || []).map(function (k) {
@@ -1409,7 +1420,7 @@
       hilbert: 'wheel zoom &middot; drag pan &middot; hover a cell &middot; click to open it in Arcs &middot; buttons switch the layer',
       circos: 'drag to rotate &middot; hover chords and chromosomes &middot; click a chromosome to open it in Arcs',
       gene: 'hover an element or a heatmap row &middot; click to open it in Arcs &middot; Ctrl+K picks another gene',
-      protein: 'hover lollipops and domains &middot; click a finding in the list, or search a gene, to switch protein',
+      protein: 'wheel to zoom to amino acids and codons, drag to pan, double click to reset &middot; hover any mark &middot; click a finding in the list, or search a gene, to switch protein',
       atrium: 'loading three.js...',
       mito: 'hover a gene or a variant &middot; click a protein-coding gene for its protein &middot; stems: blue homoplasmic, orange heteroplasmic',
       pathways: 'click a box to open it, the title to go back &middot; the list ranks pathways by enrichment &middot; switches above pick the gene set',
