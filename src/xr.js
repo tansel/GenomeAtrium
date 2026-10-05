@@ -691,7 +691,7 @@
   // the window than at 1400 px, and sharp. The window is 2.4 x 1.2 m at 1.6 m.
   var PANEL_W = 1000, PANEL_H = 500, PANEL_DPR = 2, PW = 2.4, PH = 1.2, TAB_H = 80, TAB_CW = 1400;
   var TABS = [['arcs', 'Arcs'], ['circos', 'Circos'], ['hilbert', 'Hilbert'], ['matrix', 'Matrix'], ['gene', 'Gene'],
-    ['protein', 'Protein'], ['hic', 'Hi-C'], ['pathways', 'Pathways'], ['3d', 'Landscape'], ['close', 'Close']];
+    ['protein', 'Protein'], ['hic', 'Hi-C'], ['pathways', 'Pathways'], ['mito', 'Mito'], ['3d', 'Landscape'], ['close', 'Close']];
   Atrium.label = label; Atrium.card = card;
   var PANEL_VIEWS = TABS.map(function (t) { return t[0]; }).filter(function (m) { return m !== 'close'; });
   Atrium.PANEL_VIEWS = PANEL_VIEWS;

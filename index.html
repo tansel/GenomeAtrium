@@ -163,6 +163,7 @@
     <div id="clinvarNote" class="dim"></div>
     <div id="gnomadBox"><label title="Frequencies from gnomAD v4 (genomes + exomes). Only 25 kb tile coordinates are sent to gnomad.broadinstitute.org; your alleles and genotypes never leave the page."><input type="checkbox" id="gnomadOn"> gnomAD frequencies</label>
       <span class="dim" id="gnomadNote">off. When on, the page asks gnomad.broadinstitute.org for 25 kb regions (coordinates only, never your alleles).</span></div>
+    <div id="readsNote"></div>
     <div id="peopleBox"></div>
     <div id="samplesBox"></div>
     <div id="gwasBox"><div class="fhead">GWAS <span class="dim" id="gwasNote"></span></div>
@@ -189,7 +190,7 @@
     <button id="navFwd" title="Forward (Alt+Right)" disabled>&rsaquo;</button>
     <button id="bookmark" title="Bookmark this view">&#9734;</button>
     <button id="openPalette" title="Search genes, regions, findings, bookmarks (Ctrl+K or /)">search</button>
-    <input type="file" id="file" accept=".vcf,.gz,.bgz,.bam,.json,.bed,.cov" multiple hidden>
+    <input type="file" id="file" accept=".vcf,.gz,.bgz,.bam,.bai,.fa,.fasta,.fna,.fai,.json,.bed,.cov" multiple hidden>
   <input type="file" id="fileAdd" accept=".vcf,.gz,.bgz" multiple hidden>
     <button id="stop">Stop reading</button>
     <input type="text" id="goto" placeholder="gene, or chr1:1,000,000-2,000,000" title="Go to a gene, region or chromosome">
@@ -230,6 +231,7 @@
     <button id="modeHic" title="Hi-C contacts around the region from an ENCODE contact map, with enhancer links and SVs">Hi-C</button>
     <button id="modeAtrium" title="The genome as a room (WebXR): ring, arches overhead, findings, landscape in the middle; Enter VR with a headset">Atrium</button>
     <button id="modePathways" title="Reactome pathways as a treemap, coloured by enrichment of a gene set">Pathways</button>
+      <button id="modeMito" title="The mitochondrial genome as a circular map">Mito</button>
     <button id="modeMatrix" title="Window by window similarity matrix">Matrix</button>
     <button id="mode3d" title="Genome windows in 3D, placed by PCA of their features">Landscape</button>
   </div>
@@ -237,36 +239,40 @@
   <div id="help" class="panel">wheel zoom &middot; drag pan &middot; click a chromosome to open it &middot; double click resets</div>
 
   <script src="moebio_framework/dist/moebio_framework.js"></script>
-  <script src="src/bgzf.js?v=20261005144036"></script>
-  <script src="src/genome.js?v=20261005144036"></script>
-  <script src="src/vcf.js?v=20261005144036"></script>
-  <script src="src/bam.js?v=20261005144036"></script>
-  <script src="src/clinvar.js?v=20261005144036"></script>
-  <script src="src/windows.js?v=20261005144036"></script>
-  <script src="src/regulatory.js?v=20261005144036"></script>
-  <script src="src/samples.js?v=20261005144036"></script>
-  <script src="src/gwas.js?v=20261005144036"></script>
-  <script src="src/pathways.js?v=20261005144036"></script>
-  <script src="src/gnomad.js?v=20261005144036"></script>
-  <script src="src/view.js?v=20261005144036"></script>
-  <script src="src/navigation.js?v=20261005144036"></script>
-  <script src="src/tracks.js?v=20261005144036"></script>
-  <script src="src/hilbert.js?v=20261005144036"></script>
-  <script src="src/circos.js?v=20261005144036"></script>
-  <script src="src/genecentric.js?v=20261005144036"></script>
-  <script src="src/protein.js?v=20261005144036"></script>
-  <script src="src/hic.js?v=20261005144036"></script>
-  <script src="src/roh.js?v=20261005144036"></script>
-  <script src="src/pgx.js?v=20261005144036"></script>
-  <script src="src/people.js?v=20261005144036"></script>
-  <script src="src/prs.js?v=20261005144036"></script>
-  <script src="src/methylation.js?v=20261005144036"></script>
-  <script src="src/panels.js?v=20261005144036"></script>
-  <script src="src/xr.js?v=20261005144036"></script>
-  <script src="src/structure.js?v=20261005144036"></script>
-  <script src="src/molecule.js?v=20261005144036"></script>
-  <script src="src/app.js?v=20261005144036"></script>
-  <script src="src/landscape.js?v=20261005144036"></script>
-  <script src="src/matrix.js?v=20261005144036"></script>
+  <script src="src/bgzf.js?v=20261005174501"></script>
+  <script src="src/genome.js?v=20261005174501"></script>
+  <script src="src/vcf.js?v=20261005174501"></script>
+  <script src="src/bam.js?v=20261005174501"></script>
+  <script src="src/clinvar.js?v=20261005174501"></script>
+  <script src="src/windows.js?v=20261005174501"></script>
+  <script src="src/regulatory.js?v=20261005174501"></script>
+  <script src="src/samples.js?v=20261005174501"></script>
+  <script src="src/gwas.js?v=20261005174501"></script>
+  <script src="src/pathways.js?v=20261005174501"></script>
+  <script src="src/mito.js?v=20261005174501"></script>
+  <script src="src/gnomad.js?v=20261005174501"></script>
+  <script src="src/view.js?v=20261005174501"></script>
+  <script src="src/navigation.js?v=20261005174501"></script>
+  <script src="src/fasta.js?v=20261005174501"></script>
+  <script src="src/reads.js?v=20261005174501"></script>
+  <script src="src/pileup.js?v=20261005174501"></script>
+  <script src="src/tracks.js?v=20261005174501"></script>
+  <script src="src/hilbert.js?v=20261005174501"></script>
+  <script src="src/circos.js?v=20261005174501"></script>
+  <script src="src/genecentric.js?v=20261005174501"></script>
+  <script src="src/protein.js?v=20261005174501"></script>
+  <script src="src/hic.js?v=20261005174501"></script>
+  <script src="src/roh.js?v=20261005174501"></script>
+  <script src="src/pgx.js?v=20261005174501"></script>
+  <script src="src/people.js?v=20261005174501"></script>
+  <script src="src/prs.js?v=20261005174501"></script>
+  <script src="src/methylation.js?v=20261005174501"></script>
+  <script src="src/panels.js?v=20261005174501"></script>
+  <script src="src/xr.js?v=20261005174501"></script>
+  <script src="src/structure.js?v=20261005174501"></script>
+  <script src="src/molecule.js?v=20261005174501"></script>
+  <script src="src/app.js?v=20261005174501"></script>
+  <script src="src/landscape.js?v=20261005174501"></script>
+  <script src="src/matrix.js?v=20261005174501"></script>
 </body>
 </html>

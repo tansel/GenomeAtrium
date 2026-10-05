@@ -217,6 +217,7 @@
     if (mode === 'protein' && G.app.proteinView) { G.app.proteinView.draw(g); return; }
     if (mode === 'hic' && G.app.hicView) { G.app.hicView.draw(g); return; }
     if (mode === 'pathways' && G.app.pathways) { G.app.pathways.draw(g); return; }
+    if (mode === 'mito' && G.app.mitoView) { G.app.mitoView.draw(g); return; }
 
     this.computeLayout();
     this.navigate(g);
@@ -225,7 +226,7 @@
     this.hover = null;
 
     if (this.drawSelection) this.drawSelection(g);
-    this.drawBand(g, axisY);
+    if (!(this.drawPileup && this.drawPileup(g, axisY))) this.drawBand(g, axisY); // zoomed in: the pileup takes the band area
     this.drawAxis(g, axisY);
     this.drawArcs(g, axisY);
     if (this.regOn()) this.drawRegulatory(g, axisY); else this.regVisible = 0;

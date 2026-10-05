@@ -77,6 +77,7 @@
         { name: 'GenomeAtrium', code: 'src/clinvar.js' }, { file: file.name }, data.build, 'ClinVar P/LP from Asclepius');
       current = data;
       setPeople(data);
+      view.reads = null; view.pileupState = {}; $('readsNote').innerHTML = '';
       view.setStatus(null);
       view.history = []; view.histIdx = null; view.selection = null;
       if (view.mode === 'tracks' || view.mode === 'atrium') setMode('arcs');
@@ -106,7 +107,7 @@
   // The first view for a newly loaded genome: ?view=<mode> if given, else the Atrium
   // (the central room every view opens from), else Arcs when there is no genome to
   // place (an unaligned BAM) or no WebGL.
-  var VIEWS = ['arcs', 'tracks', 'circos', 'hilbert', 'gene', 'protein', 'hic', 'pathways', 'atrium', 'matrix', '3d'];
+  var VIEWS = ['arcs', 'tracks', 'circos', 'hilbert', 'gene', 'protein', 'hic', 'pathways', 'mito', 'atrium', 'matrix', '3d'];
   function hasWebGL() {
     try { var c = document.createElement('canvas'); return !!(c.getContext('webgl2') || c.getContext('webgl')); } catch (e) { return false; }
   }
@@ -319,7 +320,7 @@
     bookmarks().forEach(function (b) {
       if (!ql || b.name.toLowerCase().indexOf(ql) >= 0) out.push({ kind: 'bookmark', label: b.name, go: function () { setMode('arcs'); view.goTo(b.chrom, b.start, b.end); } });
     });
-    [['arcs', 'Arcs view'], ['tracks', 'Tracks view'], ['circos', 'Circos view'], ['hilbert', 'Hilbert map'], ['gene', 'Gene view'], ['protein', 'Protein view'], ['hic', 'Hi-C view'], ['pathways', 'Pathways view'], ['atrium', 'Atrium (VR)'], ['matrix', 'Matrix view'], ['3d', 'Landscape view']].forEach(function (v) {
+    [['arcs', 'Arcs view'], ['tracks', 'Tracks view'], ['circos', 'Circos view'], ['hilbert', 'Hilbert map'], ['gene', 'Gene view'], ['protein', 'Protein view'], ['hic', 'Hi-C view'], ['pathways', 'Pathways view'], ['mito', 'Mito view (mitochondrial genome)'], ['atrium', 'Atrium (VR)'], ['matrix', 'Matrix view'], ['3d', 'Landscape view']].forEach(function (v) {
       if (ql && v[1].toLowerCase().indexOf(ql) >= 0) out.push({ kind: 'view', label: v[1], go: function () { setMode(v[0]); } });
     });
     if (ql && 'tissues'.indexOf(ql) === 0) out.push({ kind: 'tissues', label: 'pick tissues and models', go: function () { $('openPicker').click(); } });
@@ -424,17 +425,52 @@
     return /\.vcf(\.b?gz)?$/i.test(f.name) && !/(^|[._-])(sv|svs|sniffles|wf_sv)([._-]|$)/i.test(f.name);
   }
   // Several files: the first genome is primary, later genome VCFs join as people, the rest load as usual.
+  // Index files pair with their data: a .bai with its BAM (reads for the pileup), a .fai with its FASTA.
   function loadMany(fs) {
     if (!fs.length) return;
+    var idx = {};
+    fs = fs.filter(function (f) { if (/\.(bai|fai)$/i.test(f.name)) { idx[f.name.replace(/\.(bai|fai)$/i, '').toLowerCase()] = f; return false; } return true; });
+    var indexFor = function (f) { var k = f.name.toLowerCase(); return idx[k] || idx[k.replace(/\.(bam|fa|fasta|fna)$/, '')] || null; };
+    var fasta = fs.filter(function (f) { return /\.(fa|fasta|fna)(\.gz)?$/i.test(f.name); });
+    fs = fs.filter(function (f) { return fasta.indexOf(f) < 0; });
     var first = true;
+    var after = function () { return fasta.reduce(function (p, f) { return p.then(function () { return loadFasta(f, indexFor(f)); }); }, Promise.resolve()); };
+    var bams = fs.filter(function (f) { return /\.bam$/i.test(f.name) && indexFor(f); });
+    if (bams.length && current && current.format === 'vcf') { // reads for the loaded genome
+      fs = fs.filter(function (f) { return bams.indexOf(f) < 0; });
+      bams.forEach(function (f) { attachReads(G.reads.fileSource(f), G.reads.fileSource(indexFor(f)), f.name); });
+    }
     fs.sort(function (a, b) { return isPersonFile(b) - isPersonFile(a); }); // genomes before overlays
     fs.reduce(function (p, f) {
       return p.then(function () {
         if (isPersonFile(f) && !first) return addPerson(f);
         if (isPersonFile(f)) first = false;
-        return load(f);
+        var bai = /\.bam$/i.test(f.name) && indexFor(f);
+        return load(f).then(function () { if (bai) return attachReads(G.reads.fileSource(f), G.reads.fileSource(bai), f.name); });
       });
-    }, Promise.resolve());
+    }, Promise.resolve()).then(after);
+  }
+
+  // Reads for the pileup (reads.js): a BAM with its index, local or a URL; same build only.
+  async function attachReads(bamSrc, baiSrc, name) {
+    try {
+      var src = await G.reads.open(bamSrc, baiSrc);
+      if (current && src.build && current.build && src.build !== current.build) throw new Error(name + ' is ' + src.build + ', the genome is ' + current.build + ': coordinates are never compared across builds.');
+      view.reads = src; view.pileupState = {};
+      $('readsNote').innerHTML = 'Reads: ' + esc(name) + ' <span class="dim">(' + (src.build || 'build unknown') + '). Zoom to 4 kb or less in Arcs for the pileup.</span>';
+    } catch (err) { console.error(err); $('readsNote').innerHTML = '<span class="warn">Reads: ' + esc(err.message) + '</span>'; }
+  }
+  G.app.attachReads = attachReads;
+
+  // A reference FASTA (fasta.js): bases at base-level zoom and for the pileup's mismatches.
+  async function loadFasta(file, fai) {
+    try {
+      $('readsNote').innerHTML = '<span class="dim">indexing ' + esc(file.name) + '...</span>';
+      var fa = await G.fasta.openFasta(file, fai, function (f) { $('readsNote').innerHTML = '<span class="dim">indexing ' + esc(file.name) + ': ' + Math.round(100 * f) + '%</span>'; });
+      if (current && fa.build && current.build && fa.build !== current.build) throw new Error(file.name + ' is ' + fa.build + ', the genome is ' + current.build + '.');
+      G.refseq.fasta = fa; G.refseq.clear(); view.pileupState = {};
+      $('readsNote').innerHTML = 'Reference: ' + esc(file.name) + ' <span class="dim">(' + Object.keys(fa.index).length + ' sequences, ' + (fa.build || 'build unknown') + (fai ? '' : ', indexed in the page') + ')</span>' + (view.reads ? '<br>Reads: ' + esc(view.reads.name) : '');
+    } catch (err) { console.error(err); $('readsNote').innerHTML = '<span class="warn">' + esc(err.message) + '</span>'; }
   }
   async function addPerson(file) {
     var base = current;
@@ -1150,7 +1186,7 @@
   document.addEventListener('dragleave', function (e) { if (!e.relatedTarget) document.body.classList.remove('dragging'); });
   document.addEventListener('drop', function (e) {
     e.preventDefault(); document.body.classList.remove('dragging');
-    loadMany(Array.prototype.filter.call(e.dataTransfer.files, function (f) { return !/\.(tbi|bai|csi|crai)$/i.test(f.name); }));
+    loadMany(Array.prototype.filter.call(e.dataTransfer.files, function (f) { return !/\.(tbi|csi|crai)$/i.test(f.name); }));
   });
 
   $('goto').addEventListener('keydown', function (e) {
@@ -1358,6 +1394,7 @@
     $('hicBar').hidden = mode !== 'hic';
     $('pathBar').hidden = mode !== 'pathways';
     $('modePathways').classList.toggle('on', mode === 'pathways');
+    $('modeMito').classList.toggle('on', mode === 'mito');
     $('modeHic').classList.toggle('on', mode === 'hic');
     prepareView(mode, prev);
     $('modeArcs').classList.toggle('on', mode === 'arcs');
@@ -1374,6 +1411,7 @@
       gene: 'hover an element or a heatmap row &middot; click to open it in Arcs &middot; Ctrl+K picks another gene',
       protein: 'hover lollipops and domains &middot; click a finding in the list, or search a gene, to switch protein',
       atrium: 'loading three.js...',
+      mito: 'hover a gene or a variant &middot; click a protein-coding gene for its protein &middot; stems: blue homoplasmic, orange heteroplasmic',
       pathways: 'click a box to open it, the title to go back &middot; the list ranks pathways by enrichment &middot; switches above pick the gene set',
       hic: 'hover contacts and rings &middot; select a region in Arcs (alt+drag) or focus a gene, then load region'
     }[mode];
@@ -1397,6 +1435,8 @@
   $('modeHic').onclick = function () { setMode('hic'); };
   $('modeAtrium').onclick = function () { setMode('atrium'); };
   $('modePathways').onclick = function () { setMode('pathways'); };
+  $('modeMito').onclick = function () { setMode('mito'); };
+  G.app.mitoView = new G.MitoView();
   // Views call this to switch view (a click in Circos opens Arcs, say). Inside
   // the Atrium with its window open, that switches the window's tab instead.
   G.app.setMode = function (mode) {
@@ -1409,6 +1449,9 @@
   // Several files load in order: ?url=local/a.g.vcf.gz,local/a.findings.json
   var params = new URLSearchParams(location.search), q = params.get('url');
   // The public HG002 demo (tools/fetch_hg002.py): small variants, SVs, methylation per haplotype.
+  // reads for the HG002 demo: GIAB's 300x Illumina BAM (public; read by byte range, CORS open)
+  var GIAB_HG002_BAM = 'https://ftp-trace.ncbi.nlm.nih.gov/ReferenceSamples/giab/data/AshkenazimTrio/HG002_NA24385_son/NIST_HiSeq_HG002_Homogeneity-10953946/NHGRI_Illumina300X_AJtrio_novoalign_bams/HG002.GRCh38.300x.bam';
+  var DEMO_READS = { hg002: GIAB_HG002_BAM, hg002trio: GIAB_HG002_BAM };
   var DEMO_ROLES = { hg002trio: { hg002: 'child', hg003: 'father', hg004: 'mother' } };
   var DEMO = { hg002trio: ['hg002.wf_snp.vcf.gz', 'hg003.wf_snp.vcf.gz', 'hg004.wf_snp.vcf.gz'].map(function (f) { return 'data/demo/hg002/' + f; }).join(','),
     hg002: ['hg002.wf_snp.vcf.gz', 'hg002.wf_sv.vcf.gz', 'hg002.hap1.methyl.1kb.cov.gz', 'hg002.hap2.methyl.1kb.cov.gz'].map(function (f) { return 'data/demo/hg002/' + f; }).join(',') };
@@ -1422,6 +1465,8 @@
       return prev.then(function () { return fetch(u); }).then(function (r) { return r.blob(); })
         .then(function (b) { var f = new File([b], u.split('/').pop()); return isPersonFile(f) && current ? addPerson(f) : load(f); });
     }, Promise.resolve()).then(function () {
+      var readsUrl = params.get('reads') || DEMO_READS[params.get('demo')];
+      if (readsUrl && current) attachReads(G.reads.urlSource(readsUrl), G.reads.urlSource(readsUrl + '.bai'), readsUrl.split('/').pop());
       var roles = DEMO_ROLES[params.get('demo')];
       if (roles) { G.app.people.forEach(function (p) { if (roles[p.name]) p.role = roles[p.name]; }); renderPeople(); }
     });
