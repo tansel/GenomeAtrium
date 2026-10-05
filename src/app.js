@@ -1122,15 +1122,21 @@
 
   // ----- controls
 
-  $('toggleInfo').onclick = function () {
-    if (document.body.classList.contains('viewMode')) { // outside Arcs the panel starts folded; expand on request
-      var e = $('info').classList.toggle('expanded');
-      $('toggleMark').textContent = e ? 'hide details' : 'show details';
-      return;
-    }
-    var c = $('info').classList.toggle('collapsed');
-    $('toggleMark').textContent = c ? 'show details' : 'hide details';
-  };
+  // The side panel: minimised to its heading or open, the same in every view, remembered.
+  function setPanelMin(min) {
+    $('info').classList.toggle('min', min);
+    $('toggleMark').textContent = min ? 'show panel' : 'hide panel';
+    try { localStorage.setItem('genomeatrium.panel', min ? 'min' : 'open'); } catch (e) { /* not kept */ }
+  }
+  (function () { var m = false; try { m = localStorage.getItem('genomeatrium.panel') === 'min'; } catch (e) { /* open */ } setPanelMin(m); })();
+  $('toggleInfo').onclick = function () { setPanelMin(!$('info').classList.contains('min')); };
+  document.addEventListener('keydown', function (e) {
+    var t = e.target && e.target.tagName;
+    if (t === 'INPUT' || t === 'TEXTAREA' || t === 'SELECT' || e.metaKey || e.ctrlKey || e.altKey) return;
+    if (e.key === 'i') setPanelMin(!$('info').classList.contains('min'));
+    if (e.key === 'Escape' && view.mode === 'atrium' && atrium) atrium.escape();
+  });
+  $('placeBack').onclick = function () { if (atrium) atrium.goPlace('atrium'); };
   $('open').onclick = function () { $('file').click(); };
   $('file').onchange = function (e) { loadMany(Array.prototype.slice.call(e.target.files)); e.target.value = ''; };
   $('addPerson').onclick = function () { $('fileAdd').click(); };
@@ -1243,12 +1249,20 @@
   }
   G.app.setLayer = setLayer;
   function renderAtriumFilters() {
-    $('atriumFilters').innerHTML = '<div class="fhead">Filters</div>' + G.Atrium.FILTERS.map(function (f) {
+    $('atriumFilters').innerHTML = '<div class="fhead" id="filtersHead" style="cursor:pointer" title="Fold or open the filters">Filters <span class="dim" id="filtersMark"></span></div>' + G.Atrium.FILTERS.map(function (f) {
       return '<label><input type="checkbox" data-layer="' + f[0] + '"' + (view.layers[f[0]] !== false ? ' checked' : '') + '> ' + f[1] + '</label>';
     }).join('') + '<div class="dim" style="margin-top:4px">In VR: click the left stick for these on your wrist.</div>';
     Array.prototype.forEach.call(document.querySelectorAll('#atriumFilters input'), function (el) {
       el.onchange = function () { setLayer(el.dataset.layer, el.checked); };
     });
+    // folds to its heading like the side panel, remembered
+    var fold = function (min) {
+      $('atriumFilters').classList.toggle('min', min); $('filtersMark').textContent = min ? 'show' : 'hide';
+      try { localStorage.setItem('genomeatrium.filters', min ? 'min' : 'open'); } catch (e) { /* not kept */ }
+    };
+    var startMin = false; try { startMin = localStorage.getItem('genomeatrium.filters') === 'min'; } catch (e) { /* open */ }
+    fold(startMin);
+    $('filtersHead').onclick = function () { fold(!$('atriumFilters').classList.contains('min')); };
   }
 
   // Atrium (WebXR), created on first use.
@@ -1264,6 +1278,7 @@
       $('help').innerHTML = (atrium.xrSupported ? 'Enter VR with the button below; ' : '') +
         'drag to orbit, wheel to zoom, hover to read an object, click it to open a window with view tabs (Landscape is a portal into the Landscape room)';
       atriumIntro();
+      $('placeBack').hidden = atrium.where === 'atrium'; // back in a room: offer the way out again
     } catch (err) { // no WebGL, or three.js could not load: Arcs instead, and say why
       console.error(err);
       setMode('arcs');
@@ -1284,6 +1299,7 @@
   function leaveAtrium() {
     $('atriumIntro').hidden = true;
     $('xr').hidden = true; document.body.classList.remove('atriumMode');
+    $('placeBack').hidden = true;
     $('atriumFilters').hidden = true;
     if (atrium) { if (atrium.panel) atrium.closePanel(); atrium.close(); }
     view.g.start && view.g.start();
@@ -1331,8 +1347,7 @@
     if (mode === 'arena') mode = 'atrium'; // the Atrium's earlier name
     var prev = view.mode;
     document.body.classList.toggle('viewMode', mode !== 'arcs');
-    $('info').classList.remove('expanded');
-    $('toggleMark').textContent = mode !== 'arcs' || $('info').classList.contains('collapsed') ? 'show details' : 'hide details';
+
     if (prev === 'arcs' && view.visibleSpan && view.zoom > 1.01) lastArcsSpan = view.visibleSpan();
     if (prev === 'tracks' && mode !== 'tracks') leaveTracks(mode);
     if (prev === 'atrium' && mode !== 'atrium') leaveAtrium();

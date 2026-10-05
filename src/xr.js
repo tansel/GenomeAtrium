@@ -1047,11 +1047,20 @@
       else if (where === 'protein') { this.camera.position.set(PROT_X, 2.0, 6.0); this.controls.target.set(PROT_X, 1.6, 0); }
       else this.homeView();
     }
+    var back = document.getElementById('placeBack'); // the desktop's way back from a room
+    if (back) back.hidden = where === 'atrium';
     var h = document.getElementById('help');
     if (h && G.app.view.mode === 'atrium') h.textContent = where === 'room'
       ? 'Landscape room: every dot is a genome window, placed by PCA; threads join neighbours on a chromosome. Click a dot to open it. The sign (or B/Y in VR) goes back.'
       : where === 'protein' ? 'Protein room: the protein at room size, normal and variant side by side at a site. Walk around and into it; the card is beside you. B/Y (or the card) goes back.'
       : 'Atrium: drag to orbit, wheel to zoom, click an object to open it in a window with view tabs';
+  };
+
+  // Esc on the desktop: close a choice card, else leave a room, else close the window.
+  Atrium.prototype.escape = function () {
+    if (this.choice) this.closeChoice();
+    else if (this.where !== 'atrium') this.goPlace('atrium');
+    else if (this.panel) this.closePanel();
   };
 
   // The Protein room: the protein at 9x in its own place, with a floor; its card stands
