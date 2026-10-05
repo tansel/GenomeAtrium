@@ -95,15 +95,18 @@
   ProteinView.prototype.loadExtra = function (gene, p) {
     var x = this.extra[gene] = this.extra[gene] || {}, build = G.app.view.data && G.app.view.data.build;
     var host = build === 'GRCh37' ? 'https://grch37.rest.ensembl.org' : 'https://rest.ensembl.org';
-    if (!x.txLoading && (build === 'GRCh38' || build === 'GRCh37')) {
+    if (!x.txLoading && !x.cds && (build === 'GRCh38' || build === 'GRCh37')) {
       x.txLoading = true; x.build = build;
-      fetch(host + '/lookup/symbol/homo_sapiens/' + encodeURIComponent(gene) + '?expand=1;content-type=application/json').then(function (r) { return r.ok ? r.json() : null; })
+      fetch(host + '/lookup/symbol/homo_sapiens/' + encodeURIComponent(gene) + '?expand=1;content-type=application/json', { signal: AbortSignal.timeout(45000) }).then(function (r) { return r.ok ? r.json() : null; })
         .then(function (j) {
           var tx = j && G.transcript.fromEnsembl(j);
           if (!tx) { x.txError = 'no protein-coding transcript in Ensembl'; return; }
           x.tx = tx; x.exonsAA = G.transcript.exonsOnProtein(tx);
-          return fetch(host + '/sequence/id/' + tx.id + '?type=cds;content-type=text/plain').then(function (r) { return r.ok ? r.text() : ''; }).then(function (t) { x.cds = t.trim().toUpperCase(); if (!x.cds) x.cdsError = 'Ensembl gave no coding sequence'; });
-        }).catch(function (e) { x.txError = e.message; });
+          return fetch(host + '/sequence/id/' + tx.id + '?type=cds;content-type=text/plain', { signal: AbortSignal.timeout(45000) }).then(function (r) { return r.ok ? r.text() : ''; }).then(function (t) { x.cds = t.trim().toUpperCase(); if (!x.cds) x.cdsError = 'Ensembl gave no coding sequence'; });
+        }).catch(function (e) { // Ensembl busy or offline: say so, and try again in 15 s
+          if (x.tx) x.cdsError = 'Ensembl coding sequence: ' + e.message + ' (retrying)'; else x.txError = e.message + ' (retrying)';
+          setTimeout(function () { x.txLoading = false; x.txError = x.cdsError = null; }, 15000);
+        });
     }
     if (!x.afLoading) {
       x.afLoading = true;
@@ -171,6 +174,7 @@
     if (this.errors && this.errors[gene]) return msg(this.errors[gene]);
     var p = this.loaded && this.loaded[gene];
     if (!p) return msg('Loading ' + gene + ' from UniProt and InterPro...');
+    this.loadExtra(gene, p); // no-op once loaded or loading; retries after a failed Ensembl call
     var x = this.extra[gene] || {}, L = p.length || (p.sequence || '').length || 1;
 
     // the residue axis (zoomable)
@@ -199,7 +203,7 @@
       ctx.strokeStyle = col; ctx.lineWidth = v.cq.kind === 'synonymous' ? 1 : 2;
       ctx.beginPath(); ctx.moveTo(xx, base - 12); ctx.lineTo(xx, yy); ctx.stroke();
       ctx.fillStyle = col; ctx.beginPath(); ctx.moveTo(xx, yy - 6); ctx.lineTo(xx + 5, yy); ctx.lineTo(xx, yy + 6); ctx.lineTo(xx - 5, yy); ctx.closePath(); ctx.fill();
-      if (v.cq.kind !== 'synonymous' && (coding.length < 25 || ppr > 3)) { g.setText('white', 11, 'Helvetica, Arial, sans-serif', 'center', 'bottom'); g.fText(v.cq.short || v.cq.kind, xx, yy - 8); }
+      if (v.cq.kind !== 'synonymous' && (coding.length < 25 || ppr > 3)) { g.setText('white', 11, 'Helvetica, Arial, sans-serif', 'right', 'middle'); g.fText(v.cq.short || v.cq.kind, xx - 8, yy); }
       var dd = Math.hypot(g.mX - xx, g.mY - yy);
       if (dd < bestD) {
         bestD = dd; over = ['this sample: ' + (v.cq.hgvs || v.cq.short || v.cq.kind) + ', ' + v.cq.kind + ' (' + v.zyg + ')', v.chrom + ':' + v.pos.toLocaleString() + ' ' + v.ref + '>' + v.alt + (v.cq.codon ? ', codon ' + v.cq.codon : ''),
