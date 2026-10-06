@@ -68,14 +68,14 @@
     var self = this;
     if (this.cache[gene]) return this.cache[gene];
     var p = (async function () {
-      var up = await fetch('https://rest.uniprot.org/uniprotkb/search?query=gene_exact:' + encodeURIComponent(gene) +
+      var up = await G.net.fetchRetry('https://rest.uniprot.org/uniprotkb/search?query=gene_exact:' + encodeURIComponent(gene) +
         '+AND+organism_id:9606+AND+reviewed:true&fields=accession,length,protein_name,sequence&format=json').then(function (r) { return r.json(); });
       var hit = up.results && up.results[0];
       if (!hit) throw new Error('No reviewed human UniProt entry for ' + gene);
       var acc = hit.primaryAccession, length = hit.sequence ? hit.sequence.length : 0;
       var domains = [];
       try {
-        var ip = await fetch('https://www.ebi.ac.uk/interpro/api/entry/pfam/protein/uniprot/' + acc + '/?format=json').then(function (r) { return r.json(); });
+        var ip = await G.net.fetchRetry('https://www.ebi.ac.uk/interpro/api/entry/pfam/protein/uniprot/' + acc + '/?format=json').then(function (r) { return r.json(); });
         (ip.results || []).forEach(function (r) {
           r.proteins.forEach(function (pr) { pr.entry_protein_locations.forEach(function (loc) { loc.fragments.forEach(function (f) {
             domains.push({ start: f.start, end: f.end, name: r.metadata.name, acc: r.metadata.accession });
@@ -86,7 +86,10 @@
       return { acc: acc, length: length, domains: domains, name: name, sequence: hit.sequence && hit.sequence.value || '' };
     })();
     this.cache[gene] = p;
-    p.then(function (v) { self.loaded = self.loaded || {}; self.loaded[gene] = v; self.loadExtra(gene, v); }, function (e) { self.errors = self.errors || {}; self.errors[gene] = e.message; });
+    p.then(function (v) { self.loaded = self.loaded || {}; self.loaded[gene] = v; self.loadExtra(gene, v); }, function (e) { // shown for 15 s, then the next draw tries again (a failure is not cached)
+      self.errors = self.errors || {}; self.errors[gene] = e.message + ' (trying again shortly)';
+      setTimeout(function () { delete self.cache[gene]; delete self.errors[gene]; }, 15000);
+    });
     return p;
   };
 
@@ -97,12 +100,12 @@
     var host = build === 'GRCh37' ? 'https://grch37.rest.ensembl.org' : 'https://rest.ensembl.org';
     if (!x.txLoading && !x.cds && (build === 'GRCh38' || build === 'GRCh37')) {
       x.txLoading = true; x.build = build;
-      x.txPromise = fetch(host + '/lookup/symbol/homo_sapiens/' + encodeURIComponent(gene) + '?expand=1;content-type=application/json', { signal: AbortSignal.timeout(45000) }).then(function (r) { return r.ok ? r.json() : null; })
+      x.txPromise = G.net.fetchRetry(host + '/lookup/symbol/homo_sapiens/' + encodeURIComponent(gene) + '?expand=1;content-type=application/json', { signal: AbortSignal.timeout(45000) }).then(function (r) { return r.ok ? r.json() : null; })
         .then(function (j) {
           var tx = j && G.transcript.fromEnsembl(j);
           if (!tx) { x.txError = 'no protein-coding transcript in Ensembl'; return; }
           x.tx = tx; x.exonsAA = G.transcript.exonsOnProtein(tx);
-          return fetch(host + '/sequence/id/' + tx.id + '?type=cds;content-type=text/plain', { signal: AbortSignal.timeout(45000) }).then(function (r) { return r.ok ? r.text() : ''; }).then(function (t) { x.cds = t.trim().toUpperCase(); if (!x.cds) x.cdsError = 'Ensembl gave no coding sequence'; });
+          return G.net.fetchRetry(host + '/sequence/id/' + tx.id + '?type=cds;content-type=text/plain', { signal: AbortSignal.timeout(45000) }).then(function (r) { return r.ok ? r.text() : ''; }).then(function (t) { x.cds = t.trim().toUpperCase(); if (!x.cds) x.cdsError = 'Ensembl gave no coding sequence'; });
         }).catch(function (e) { // Ensembl busy or offline: say so, and try again in 15 s
           if (x.tx) x.cdsError = 'Ensembl coding sequence: ' + e.message + ' (retrying)'; else x.txError = e.message + ' (retrying)';
           setTimeout(function () { x.txLoading = false; x.txError = x.cdsError = null; }, 15000);
@@ -110,10 +113,10 @@
     }
     if (!x.afLoading) {
       x.afLoading = true;
-      fetch('https://alphafold.ebi.ac.uk/api/prediction/' + p.acc).then(function (r) { return r.ok ? r.json() : []; }).then(function (list) {
+      G.net.fetchRetry('https://alphafold.ebi.ac.uk/api/prediction/' + p.acc).then(function (r) { return r.ok ? r.json() : []; }).then(function (list) {
         var e = (list || []).find(function (q) { return q.uniprotAccession === p.acc; });
         if (!e) return;
-        if (e.plddtDocUrl) fetch(e.plddtDocUrl).then(function (r) { return r.json(); }).then(function (c) { x.plddt = c.confidenceScore; }).catch(function () {});
+        if (e.plddtDocUrl) G.net.fetchRetry(e.plddtDocUrl).then(function (r) { return r.json(); }).then(function (c) { x.plddt = c.confidenceScore; }).catch(function () {});
         if (e.amAnnotationsUrl) G.structure.fetchAlphaMissense(e.amAnnotationsUrl).then(function (am) { x.am = am; }).catch(function () {});
       }).catch(function () {});
     }

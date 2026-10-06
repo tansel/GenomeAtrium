@@ -23,12 +23,14 @@
 
   function loadLib() {
     if (window.genomeSpyEmbed) return Promise.resolve();
-    return new Promise(function (resolve, reject) {
-      var s = document.createElement('script');
-      s.src = LIB;
-      s.onload = resolve;
-      s.onerror = function () { reject(new Error('GenomeSpy could not be loaded from jsDelivr (offline?)')); };
-      document.head.appendChild(s);
+    return G.net.retry(function () {
+      return new Promise(function (resolve, reject) {
+        var s = document.createElement('script');
+        s.src = LIB;
+        s.onload = resolve;
+        s.onerror = function () { s.remove(); reject(new Error('GenomeSpy could not be loaded from jsDelivr (offline, or the connection dropped; tried 4 times)')); };
+        document.head.appendChild(s);
+      });
     });
   }
 

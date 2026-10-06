@@ -99,14 +99,14 @@
   function fetchModel(acc) {
     if (cache[acc]) return cache[acc];
     cache[acc] = (async function () {
-      var list = await fetch(API + encodeURIComponent(acc)).then(function (r) {
+      var list = await G.net.fetchRetry(API + encodeURIComponent(acc)).then(function (r) {
         if (r.status === 404) return [];
         if (!r.ok) throw new Error('AlphaFold DB: HTTP ' + r.status);
         return r.json();
       });
       var e = (list || []).find(function (x) { return x.uniprotAccession === acc; }) || (list || [])[0];
       if (!e) throw new Error('No AlphaFold model for ' + acc + ' (AlphaFold DB has none for human proteins over 2,700 residues)');
-      var text = await fetch(e.cifUrl).then(function (r) { if (!r.ok) throw new Error('AlphaFold file: HTTP ' + r.status); return r.text(); });
+      var text = await G.net.fetchRetry(e.cifUrl).then(function (r) { if (!r.ok) throw new Error('AlphaFold file: HTTP ' + r.status); return r.text(); });
       return { acc: acc, entryId: e.entryId, version: e.latestVersion, amUrl: e.amAnnotationsUrl || null, model: parseCif(text) };
     })();
     cache[acc].catch(function () { delete cache[acc]; });

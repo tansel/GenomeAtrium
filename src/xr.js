@@ -63,9 +63,9 @@
   function Atrium(el) { this.el = el; this.built = null; }
 
   Atrium.prototype.open = async function (data) {
-    var T = G.THREE = G.THREE || await import(THREE_URL);
+    var T = G.THREE = G.THREE || await G.net.retry(function () { return import(THREE_URL); }); // a dropped connection is retried
     if (!this.renderer) {
-      var Orbit = (await import(ORBIT_URL)).OrbitControls, VRButton = (await import(VRBTN_URL)).VRButton;
+      var Orbit = (await G.net.retry(function () { return import(ORBIT_URL); })).OrbitControls, VRButton = (await G.net.retry(function () { return import(VRBTN_URL); })).VRButton;
       var r = this.renderer = new T.WebGLRenderer({ antialias: true });
       r.setPixelRatio(window.devicePixelRatio); r.xr.enabled = true;
       r.xr.setFramebufferScaleFactor(1.25); // sharper text; fixed foveation below pays for it at the edges
