@@ -184,7 +184,7 @@
     Array.prototype.forEach.call(document.querySelectorAll('.frow'), function (el) {
       el.onclick = function () {
         var f = list[+el.dataset.i];
-        if (view.mode === 'protein') { G.app.proteinView.gene = String(f.gene).split(/[;,]/)[0]; return; }
+        if (view.activeMode() === 'protein') { focusGene(String(f.gene).split(/[;,]/)[0], false); return; }
         setMode('arcs'); view.goTo(f.chrom, f.pos - 60, f.pos + 60);
       };
       el.onmouseenter = function () { view.highlightFinding = list[+el.dataset.i]; };
@@ -961,7 +961,7 @@
   }
 
   function focusGene(name, jump) {
-    view.focusGene = name;
+    view.focusGene = name; view.focusAt = Date.now();
     if (G.app.proteinView) G.app.proteinView.gene = null; // the protein view follows the focused gene
     if (name && jump && (view.mode === 'gene' || view.mode === 'protein')) jump = false;
     if (G.app.gnomadWants) setTimeout(G.app.gnomadWants, 0);
@@ -972,7 +972,7 @@
     refreshRegulatory();
   }
   G.app.focusGene = focusGene;
-  G.app.onFocusGene = function () { refreshRegulatory(); if (G.app.gnomadWants) G.app.gnomadWants(); };
+  G.app.onFocusGene = function () { view.focusAt = Date.now(); if (G.app.proteinView) G.app.proteinView.gene = null; refreshRegulatory(); if (G.app.gnomadWants) G.app.gnomadWants(); };
 
   function refreshRegulatory() {
     var d = current, list = [];

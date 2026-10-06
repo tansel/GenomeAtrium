@@ -167,8 +167,12 @@
     var T = G.THREE, self = this;
     this.controllers = [0, 1].map(function (i) {
       var c = self.renderer.xr.getController(i);
-      var line = new T.Line(new T.BufferGeometry().setFromPoints([new T.Vector3(0, 0, 0), new T.Vector3(0, 0, -5)]), new T.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.5 }));
-      c.add(line);
+      // the ray ends where it meets a window or card (updateRays), drawn over them: the window
+      // ignores depth, so a ray running on through it used to vanish and reappear behind it
+      var line = new T.Line(new T.BufferGeometry().setFromPoints([new T.Vector3(0, 0, 0), new T.Vector3(0, 0, -5)]), new T.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.6, depthTest: false }));
+      var tip = new T.Mesh(new T.SphereGeometry(0.008, 12, 8), new T.MeshBasicMaterial({ color: 0x5ad2be, depthTest: false }));
+      line.renderOrder = 60; tip.renderOrder = 61; tip.visible = false;
+      c.add(line); c.add(tip); c.userData.ray = line; c.userData.tip = tip;
       c.addEventListener('selectstart', function () { self.select(c); });
       c.addEventListener('selectend', function () { if (self.molDrag && self.molDrag.c === c) self.molDrag = null; });
       c.addEventListener('squeezestart', function () {
@@ -705,10 +709,11 @@
   Atrium.prototype.openPanel = function (region) {
     var T = G.THREE, view = G.app.view;
     if (!this.panel) {
-      var md = document.getElementById('maindiv');
+      var md = document.getElementById('maindiv'), keep = keepRegion(view);
       md.style.width = PANEL_W + 'px'; md.style.height = PANEL_H + 'px';
       view.forceDpr = PANEL_DPR;
       view.g._adjustCanvas();
+      keep();
       view.g.start && view.g.start();
       view.panelMode = 'arcs'; // opens on Arcs
       var root = new T.Group();
@@ -718,23 +723,26 @@
       var frame = new T.Mesh(new T.PlaneGeometry(PW + 0.06, PH + 0.06), new T.MeshBasicMaterial({ color: 0x5ad2be, side: T.DoubleSide }));
       frame.position.z = -0.005; screen.add(frame);
       root.add(screen);
-      // the window draws over the room (labels ignore depth, and would show through it)
-      // (transparent: drawn in the last pass, after the arches, in renderOrder)
-      [frame, screen].forEach(function (o) { o.material.depthTest = false; o.material.transparent = true; });
+      // Drawn in the last pass (transparent, renderOrder 15+), after the labels, but depth tested:
+      // arches and beams in front of the window stay in front, those behind it are hidden.
+      // (With depth testing off, the window painted over anything crossing it, so an arch
+      // vanished and reappeared as the head moved.) Labels write depth, so one behind the
+      // window is covered and one in front is not.
+      [frame, screen].forEach(function (o) { o.material.transparent = true; });
       frame.renderOrder = 15; screen.renderOrder = 16;
-      // tab bar above the screen
+      // tab bar under the screen (above it, it sat over eye level and was easy to miss)
       var tcv = document.createElement('canvas'); tcv.width = TAB_CW; tcv.height = TAB_H;
       var ttex = new T.CanvasTexture(tcv); ttex.colorSpace = T.SRGBColorSpace;
       var tabs = new T.Mesh(new T.PlaneGeometry(PW, PW * TAB_H / TAB_CW), new T.MeshBasicMaterial({ map: ttex, transparent: true, side: T.DoubleSide }));
-      tabs.position.y = PH / 2 + 0.03 + PW * TAB_H / TAB_CW / 2; root.add(tabs);
-      tabs.renderOrder = 16; tabs.material.depthTest = false;
+      tabs.position.y = -(PH / 2 + 0.03 + PW * TAB_H / TAB_CW / 2); root.add(tabs);
+      tabs.renderOrder = 16;
       // the portal: a disc showing the other place live, with a glowing rim
       var rt = new T.WebGLRenderTarget(512, 512);
       rt.texture.colorSpace = T.SRGBColorSpace;
       var portal = new T.Mesh(new T.CircleGeometry(0.55, 64), new T.MeshBasicMaterial({ map: rt.texture, side: T.DoubleSide }));
       var rim = new T.Mesh(new T.TorusGeometry(0.56, 0.018, 12, 96), new T.MeshBasicMaterial({ color: 0x5ad2be }));
       portal.add(rim); portal.visible = false; root.add(portal);
-      [portal, rim].forEach(function (o) { o.material.depthTest = false; o.material.transparent = true; });
+      [portal, rim].forEach(function (o) { o.material.transparent = true; });
       portal.renderOrder = 16; rim.renderOrder = 17;
       var pcam = new T.PerspectiveCamera(60, 1, 0.05, 60);
       this.panel = { root: root, screen: screen, tex: tex, tabs: tabs, tabCanvas: tcv, tabTex: ttex, portal: portal, rt: rt, pcam: pcam, last: 0, hoverTab: -1 };
@@ -755,6 +763,17 @@
     this.showTip(null);
     this.panelActive();
   };
+
+  // The canvas changes width when the window opens or closes; the Arcs offset is in pixels,
+  // so without this the view jumped to another region. Not a user move: lastMove is kept.
+  function keepRegion(view) {
+    var sp = view.zoom > 1.01 && view.visibleSpan ? view.visibleSpan() : null, lm = view.lastMove;
+    return function () {
+      if (!sp) return;
+      view.goTo(sp.chrom, sp.start, sp.end, { instant: true });
+      view.lastMove = lm; view.historyPending = false;
+    };
+  }
 
   // Switch the window's tab. '3d' (Landscape) shows the portal instead of the screen.
   Atrium.prototype.setPanelView = function (mode) {
@@ -791,11 +810,11 @@
     this.panel.root.parent.remove(this.panel.root);
     this.panel.rt.dispose();
     this.panel = null;
-    var md = document.getElementById('maindiv');
+    var md = document.getElementById('maindiv'), view = G.app.view, keep = keepRegion(view);
     md.style.width = ''; md.style.height = '';
-    var view = G.app.view;
     view.panelMode = null;
     view.forceDpr = null; view.g._adjustCanvas();
+    keep();
     view.g.stop && view.g.stop();
   };
 
@@ -911,36 +930,44 @@
     var now = performance.now(), every = now < (this.panel.activeUntil || 0) ? 80 : 1000;
     if (this.panel.screen.visible && now - this.panel.last > every) { this.panel.tex.needsUpdate = true; this.panel.last = now; }
   };
-  // The Protein tab's protein, in 3D beside the window (AlphaFold model, see molecule.js).
+  // The Protein tab's protein, in 3D beside the window: always the gene the tab shows
+  // (ProteinView.currentGene), started once per gene change.
   Atrium.prototype.followProtein = function () {
-    var pv = G.app.proteinView, view = G.app.view;
+    var pv = G.app.proteinView;
     if (!pv) return;
-    var fg = (view.findings || []).map(function (f) { return String(f.gene).split(/[;,]/)[0]; })[0];
-    var gene = pv.gene || view.focusGene || fg;
-    if (!gene) return;
-    pv.load(gene); // UniProt lookup (cached); the Protein view starts it too, but only when it draws
-    var p = pv.loaded && pv.loaded[gene];
-    if (!p || (this.mol && this.mol.acc === p.acc)) return;
+    var gene = pv.currentGene();
+    if (!gene || gene === this.molWant) return;
     this.showProtein(gene);
   };
 
-  // The protein of a gene in 3D, held near the viewer; with focus, zoomed to the sample's
-  // variant in it (side by side with the normal protein). Resolves once it is built.
+  // The protein of a gene in 3D, held near the viewer. Always the same steps: the normal
+  // protein (AlphaFold model); then, when the sample has a protein-changing variant that the
+  // model can show, normal and variant side by side at that variant; otherwise the card says
+  // why there is no variant copy. Resolves once it is built.
   Atrium.prototype.showProtein = async function (gene, opts) {
     opts = opts || {};
-    var T = G.THREE, pv = G.app.proteinView;
+    var pv = G.app.proteinView;
     gene = String(gene).split(/[;,]/)[0];
+    this.molWant = gene;
+    if (pv.currentGene() !== gene) G.app.focusGene(gene, false); // the Protein tab and this stay on one gene
     if (!this.mol) { this.mol = new G.Molecule(this); this.dolly.add(this.mol.root); }
     var mol = this.mol;
-    if (this.where !== 'protein') this.placeMolecule();
+    if (this.where !== 'protein' && (!opts.keepPlace || mol.gene !== gene)) this.placeMolecule();
+    if (mol.gene === gene && mol.model && !mol.status) { mol.showSample(); return; }
     mol.gene = gene; mol.status = 'Looking up ' + gene + ' in UniProt...'; mol.drawCard();
     var p;
     try { p = await pv.load(gene); } catch (err) { mol.status = err.message; mol.drawCard(); return; }
-    if (mol.acc !== p.acc) await mol.load(gene, p);
-    if (opts.focus && mol.variants) {
-      var i = mol.variants.findIndex(function (v) { return v.source === 'sample'; });
-      if (i >= 0) mol.focusVariant(i);
+    if (this.molWant !== gene) return; // another gene was picked meanwhile
+    if (mol.acc !== p.acc || !mol.model) await mol.load(gene, p, pv.extra[gene]); // the normal protein, at once
+    if (this.molWant !== gene || !mol.model) return; // no AlphaFold model: the card says why
+    var x = pv.extra[gene] || {};
+    if (!x.cds && !x.cdsError && !x.txError && (G.app.view.data || {}).build in { GRCh38: 1, GRCh37: 1 }) {
+      mol.sampleNote = 'Placing this sample\'s variants: reading the ' + gene + ' transcript from Ensembl...'; mol.drawCard();
+      x = await pv.ready(gene);
+      if (this.molWant !== gene || !mol.model) return;
+      mol.setExtra(x); // the variant copy, once the transcript is read
     }
+    mol.showSample();
   };
 
   // Held in front of the viewer, below eye level and to the right, so it does not hide the window.
@@ -1177,6 +1204,7 @@
     }
     this.updateHelp();
     this.updatePanel();
+    if (this.renderer.xr.isPresenting) this.updateRays();
     if (!this.renderer.xr.isPresenting) {
       this.controls.update();
       var hit = this.screenHit(null) ? null : (this.aim(null), this.raycaster.intersectObjects(this.visiblePickables(), false)[0]);
@@ -1184,6 +1212,25 @@
     }
     this.renderPortal();
     this.renderer.render(this.scene, this.camera);
+  };
+
+  // Each controller's ray stops at the first window, tab bar, portal or card it meets.
+  Atrium.prototype.updateRays = function () {
+    var self = this, flat = [];
+    var shown = function (o) { for (var q = o; q; q = q.parent) if (!q.visible) return false; return !!o.parent; };
+    if (this.panel) flat.push(this.panel.screen, this.panel.tabs, this.panel.portal);
+    if (this.mol && this.mol.cardMesh) flat.push(this.mol.cardMesh);
+    if (this.choice) flat.push(this.choice.mesh);
+    if (this.filterCard) flat.push(this.filterCard.mesh);
+    flat = flat.filter(shown);
+    (this.controllers || []).forEach(function (c) {
+      var ray = c.userData.ray, tip = c.userData.tip;
+      if (!ray) return;
+      self.aim(c);
+      var hit = flat.length ? self.raycaster.intersectObjects(flat, false)[0] : null, len = hit ? Math.min(5, hit.distance) : 5;
+      ray.scale.z = len / 5;
+      tip.visible = !!hit; tip.position.set(0, 0, -len);
+    });
   };
 
   G.Atrium = Atrium;

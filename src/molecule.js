@@ -54,8 +54,8 @@
 
   // ----- loading
 
-  Molecule.prototype.load = async function (gene, prot) {
-    this.gene = gene; this.prot = prot; this.acc = prot.acc;
+  Molecule.prototype.load = async function (gene, prot, extra) {
+    this.gene = gene; this.prot = prot; this.acc = prot.acc; this.extra = extra || {};
     this.status = 'Loading the AlphaFold model of ' + gene + ' (' + prot.acc + ')...';
     this.clearModel(); this.drawCard();
     try {
@@ -73,24 +73,68 @@
     this.drawCard();
   };
 
-  // The sample's findings in this gene, then ClinVar P/LP residues by count.
+  // Kinds the model can show: a changed residue (site) or a chain that ends early (truncation).
+  var SHOWABLE = { missense: 1, nonsense: 1, frameshift: 1, inframe: 1, 'stop lost': 1, 'start lost': 1 };
+  var WHY = { synonymous: 'synonymous (same amino acid)', intron: 'intronic', UTR: 'in the untranslated ends', 'splice site': 'at a splice site (changes splicing, not a residue the model can show)',
+    'coding block change': 'a multi-base change the page does not translate' };
+
+  // The sample's variants in this gene first (findings, then every protein-changing variant
+  // placed on the canonical transcript), then ClinVar P/LP residues by count. sampleNote says
+  // what of the sample's variants could not be shown, and why.
   Molecule.prototype.collectVariants = function () {
-    var gene = this.gene, out = [], seen = {}, pc = G.proteinChange, ONE = G.structure.ONE;
+    var gene = this.gene, out = [], seen = {}, pc = G.proteinChange, ONE = G.structure.ONE, bySeq = this.model.bySeq, x = this.extra || {};
     var add = function (v) { var k = v.pos + v.short; if (seen[k]) return; seen[k] = 1; out.push(v); };
     var altOf = function (short) { var m = /^[A-Z](\d+)([A-Z])$/.exec(short || ''); return m ? ONE[m[2]] : null; };
+    var notShown = [], nSample = 0;
     (G.app.view.findings || []).forEach(function (f) {
       if (String(f.gene).split(/[;,]/).indexOf(gene) < 0) return;
+      nSample++;
       var c = pc(f.variant_name);
-      if (c) add({ pos: c.pos, kind: c.kind, short: c.short, alt: altOf(c.short), source: 'sample', n: 1, label: c.short + ' (this sample, ' + (f.classification || 'finding') + ')' });
+      if (!c) { notShown.push(f.variant_name + ': no protein change named'); return; }
+      if (!bySeq[c.pos]) { notShown.push(c.short + ': residue ' + c.pos + ' is outside the AlphaFold model'); return; }
+      add({ pos: c.pos, kind: c.kind, short: c.short, alt: altOf(c.short), source: 'sample', n: 1, label: c.short + ' (this sample, ' + (f.classification || 'finding') + ')' });
     });
-    var cv = G.app.proteinView ? G.app.proteinView.clinvarFor(gene) : [];
+    var pv = G.app.proteinView, sv = pv ? pv.sampleVariants(gene) : [], why = {};
+    sv.forEach(function (v) {
+      var cq = v.cq, where = v.chrom + ':' + v.pos.toLocaleString() + ' ' + v.ref + '>' + v.alt;
+      if (cq.check === 'mismatch') { notShown.push(where + ': the transcript base differs from the VCF REF'); nSample++; return; }
+      if (!SHOWABLE[cq.kind]) { why[cq.kind] = (why[cq.kind] || 0) + 1; nSample++; return; }
+      nSample++;
+      if (!bySeq[cq.residue]) { notShown.push((cq.short || cq.kind) + ': residue ' + cq.residue + ' is outside the AlphaFold model'); return; }
+      add({ pos: cq.residue, kind: cq.kind, short: cq.short || cq.kind, alt: cq.kind === 'missense' ? altOf(cq.short) : null, source: 'sample', n: 1,
+        label: (cq.hgvs || cq.short || cq.kind) + ' (this sample, ' + v.zyg + ', ' + cq.kind + ')' });
+    });
+    var nShown = out.length;
+    var cv = pv ? pv.clinvarFor(gene) : [];
     cv.slice().sort(function (a, b) { return b.n - a.n; }).forEach(function (s) {
       s.names.forEach(function (nm) {
         add({ pos: s.pos, kind: s.kind, short: nm, alt: s.kind === 'missense' ? altOf(nm) : null, source: 'clinvar', n: s.n, label: nm + ' (ClinVar P/LP, ' + s.n + ' at this residue)' });
       });
     });
-    var bySeq = this.model.bySeq;
+    // what to say when no variant copy is shown
+    var other = Object.keys(why).map(function (k) { return why[k] + ' ' + (WHY[k] || k); });
+    var noTx = !x.cds && G.app.view.data && /^GRCh3[78]$/.test(G.app.view.data.build) ? 'The ' + gene + ' transcript could not be read (' + (x.cdsError || x.txError || 'Ensembl gave no answer') + '), so only findings were placed. ' : '';
+    if (nShown) this.sampleNote = notShown.length ? 'Not shown: ' + notShown.join('; ') + '.' : null;
+    else if (!nSample) this.sampleNote = noTx + 'This sample has no variant in ' + gene + ': the normal protein only.';
+    else this.sampleNote = noTx + 'No variant copy: this sample\'s ' + nSample + ' variant' + (nSample > 1 ? 's' : '') + ' in ' + gene + ' do' + (nSample > 1 ? '' : 'es') +
+      ' not change the protein as the model can show it (' + other.concat(notShown).join('; ') + '). Normal protein only.';
     return out.filter(function (v) { return bySeq[v.pos]; });
+  };
+
+  // The transcript arrived after the model: place the sample's variants again and rebuild.
+  Molecule.prototype.setExtra = function (extra) {
+    this.extra = extra || {};
+    this.variants = this.collectVariants();
+    this.build();
+  };
+
+  // The default view after a load: side by side at the sample's first variant, or the whole
+  // normal protein with sampleNote saying why there is no variant copy.
+  Molecule.prototype.showSample = function () {
+    if (!this.model || !this.variants) return;
+    var i = this.variants.findIndex(function (v) { return v.source === 'sample'; });
+    if (i >= 0) { this.layout = 'side'; this.show = 'both'; this.applyShow(); this.focusVariant(i); }
+    else this.whole();
   };
 
   Molecule.prototype.clearModel = function () {
@@ -326,10 +370,11 @@
     var v = this.variants[i], r = this.model.bySeq[v.pos];
     if (!r) return;
     this.cur = i; this.spinning = false;
-    this.cut = v.kind === 'missense' ? null : v.pos;
+    var local = v.kind === 'missense' || v.kind === 'inframe' || v.kind === 'stop lost';
+    this.cut = local ? null : v.pos;
     // side by side: a missense change is compared up close (the local backbone and the
     // residue's neighbourhood in each copy); a truncation as whole proteins, full and cut
-    this.twinMode = v.kind === 'missense' ? 'site' : 'trunc';
+    this.twinMode = local ? 'site' : 'trunc';
     if (this.layout === 'side' && this.twinMode === 'trunc') { this.targetScale = WHOLE_RADIUS / this.r95; this.targetFocus.set(0, 0, 0); }
     else { this.targetScale = FOCUS_SPAN / 14; this.targetFocus.copy(this.pos(r.ca)); }
     this.siteSeq = v.pos;
@@ -497,7 +542,8 @@
     var ctx = this.cardCanvas.getContext('2d'), self = this;
     ctx.fillStyle = 'rgba(14,14,22,0.93)'; ctx.fillRect(0, 0, CW, CH);
     ctx.strokeStyle = '#5ad2be'; ctx.lineWidth = 4; ctx.strokeRect(2, 2, CW - 4, CH - 4);
-    var lines = [];
+    var lines = [], noteLines = [];
+    var wrap = function (t, n) { var out = [], cur = ''; t.split(' ').forEach(function (w) { if ((cur + ' ' + w).length > n && cur) { out.push(cur); cur = w; } else cur = cur ? cur + ' ' + w : w; }); if (cur) out.push(cur); return out.slice(0, 3); };
     var head = this.gene ? this.gene + (this.prot && this.prot.name ? ': ' + this.prot.name : '') : 'Protein';
     if (this.status) lines.push(this.status);
     else if (this.model) {
@@ -513,14 +559,18 @@
           var amv = this.am && this.am.byChange[v.short];
           lines.push('AlphaMissense ' + v.short + ': ' + (amv ? amv.score.toFixed(2) + ' (' + AM_CLASS[amv.cls] + '), a published prediction' : this.amLoading ? 'loading...' : this.amError ? 'unavailable' : 'not listed') +
             '. Variant copy: this model with the modelled side chain only; AlphaFold predicts one structure, the normal one.');
-        } else if (v.kind !== 'missense') lines.push(v.kind + ' at ' + v.pos + ': ' + Math.round(100 * (1 - v.pos / this.model.residues.length)) + '% of the chain lost (' + (this.layout === 'side' ? 'the right copy ends there' : 'greyed') + '). A frameshift may add residues first; not shown.');
+        } else if (v.kind === 'inframe' || v.kind === 'stop lost') lines.push(v.kind + ' at ' + v.pos + ': site shown; the model cannot show the changed chain (residues added or removed).');
+        else if (v.kind !== 'missense') lines.push(v.kind + ' at ' + v.pos + ': ' + Math.round(100 * (1 - v.pos / this.model.residues.length)) + '% of the chain lost (' + (this.layout === 'side' ? 'the right copy ends there' : 'greyed') + '). A frameshift may add residues first; not shown.');
         else lines.push('Missense with no single new residue named; site shown.');
-      } else lines.push('Pick a marker, or use the Variant buttons, to zoom to a site and compare normal and variant.');
+      } else if (this.variants.length) lines.push('Pick a marker, or use the Variant buttons, to zoom to a site and compare normal and variant.');
+      if (this.sampleNote) noteLines = wrap(this.sampleNote, 92);
     }
     ctx.fillStyle = '#5ad2be'; ctx.font = 'bold 34px Helvetica, Arial, sans-serif'; ctx.textBaseline = 'top';
     ctx.fillText(head.length > 64 ? head.slice(0, 62) + '..' : head, 24, 16);
     ctx.fillStyle = '#fff'; ctx.font = '25px Helvetica, Arial, sans-serif';
     lines.forEach(function (t, i) { ctx.fillText(t.length > 96 ? t.slice(0, 94) + '..' : t, 24, 62 + i * 33); });
+    ctx.fillStyle = '#ffd27a'; // the sample note: why there is no variant copy, or what was left out
+    noteLines.slice(0, Math.max(0, 9 - lines.length)).forEach(function (t, i) { ctx.fillText(t, 24, 62 + (lines.length + i) * 33); });
     BTN.forEach(function (b) {
       var kv = b.k.split(':'), on = kv[1] && self[{ style: 'style', color: 'colorBy', show: 'show', layout: 'layout' }[kv[0]]] === kv[1];
       ctx.fillStyle = on ? '#5ad2be' : b.k === 'close' ? 'rgba(120,40,40,0.9)' : 'rgba(40,44,58,0.95)'; ctx.fillRect(b.x, b.y, b.w, b.h);

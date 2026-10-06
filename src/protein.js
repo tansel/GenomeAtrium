@@ -97,7 +97,7 @@
     var host = build === 'GRCh37' ? 'https://grch37.rest.ensembl.org' : 'https://rest.ensembl.org';
     if (!x.txLoading && !x.cds && (build === 'GRCh38' || build === 'GRCh37')) {
       x.txLoading = true; x.build = build;
-      fetch(host + '/lookup/symbol/homo_sapiens/' + encodeURIComponent(gene) + '?expand=1;content-type=application/json', { signal: AbortSignal.timeout(45000) }).then(function (r) { return r.ok ? r.json() : null; })
+      x.txPromise = fetch(host + '/lookup/symbol/homo_sapiens/' + encodeURIComponent(gene) + '?expand=1;content-type=application/json', { signal: AbortSignal.timeout(45000) }).then(function (r) { return r.ok ? r.json() : null; })
         .then(function (j) {
           var tx = j && G.transcript.fromEnsembl(j);
           if (!tx) { x.txError = 'no protein-coding transcript in Ensembl'; return; }
@@ -117,6 +117,42 @@
         if (e.amAnnotationsUrl) G.structure.fetchAlphaMissense(e.amAnnotationsUrl).then(function (am) { x.am = am; }).catch(function () {});
       }).catch(function () {});
     }
+  };
+
+  // Resolves with the gene's extras once the transcript and coding sequence are read (or failed).
+  ProteinView.prototype.ready = function (gene) {
+    var self = this;
+    return this.load(gene).then(function (p) {
+      self.loadExtra(gene, p);
+      return self.extra[gene].txPromise;
+    }).then(function () { return self.extra[gene]; }, function () { return self.extra[gene] || {}; });
+  };
+
+  // The gene the Protein view (and the Atrium's 3D protein) shows, the same rule everywhere:
+  //  1. a gene picked here (pv.gene);
+  //  2. Arcs zoomed in under 3 Mb: the focused gene if it is in view, else, when the view
+  //     moved after the gene was focused, the protein-coding gene nearest the centre;
+  //  3. the focused gene (search, a click in a gene lane, Mito, a finding);
+  //  4. the first finding.
+  ProteinView.prototype.currentGene = function () {
+    var view = G.app.view, d = view.data;
+    if (this.gene) return this.gene;
+    var fg = view.focusGene;
+    if (view.visibleSpan && view.zoom > 1.01 && d && d.build === 'GRCh38' && view.genes) { // the gene table is GRCh38
+      var sp = view.visibleSpan();
+      if (sp && sp.end - sp.start < 3e6) {
+        var key = G.genome.normName(sp.chrom), list = view.genes.inRange(key, sp.start, sp.end).filter(function (q) { return q.type === 'protein_coding'; });
+        if (fg && list.some(function (q) { return q.name === fg; })) return fg;
+        if (list.length && (!fg || (view.lastMove || 0) > (view.focusAt || 0))) {
+          var mid = (sp.start + sp.end) / 2;
+          list.sort(function (a, b) { return Math.max(0, a.start - mid, mid - a.end) - Math.max(0, b.start - mid, mid - b.end) || (b.end - b.start) - (a.end - a.start); });
+          return list[0].name;
+        }
+      }
+    }
+    if (fg) return fg;
+    var f = (view.findings || []).map(function (q) { return String(q.gene).split(/[;,]/)[0]; }).filter(function (q) { return /^[A-Za-z0-9]/.test(q); })[0];
+    return f || null;
   };
 
   // The sample's variants in the gene (canonical transcript span, plus 2 bases), with consequences.
@@ -167,7 +203,7 @@
     var msg = function (t) { g.setText('rgba(255,255,255,0.65)', 14, 'Helvetica, Arial, sans-serif', 'center', 'middle'); g.fText(t, g.cX, g.cY); };
     var findingGenes = [];
     (view.findings || []).forEach(function (f) { String(f.gene).split(/[;,]/).forEach(function (x) { if (/^[A-Za-z0-9]/.test(x || '') && findingGenes.indexOf(x) < 0) findingGenes.push(x); }); });
-    var gene = this.gene || view.focusGene || findingGenes[0];
+    var gene = this.currentGene();
     if (!gene) return msg('Pick a gene: a finding, search (Ctrl+K), or a click in the Arcs gene lane.');
     if (gene !== this.zoomGene) { this.zoom = null; this.zoomGene = gene; }
     this.load(gene);
@@ -181,14 +217,17 @@
     var left = 130, right = g.cW - 60, W = right - left, z = this.zoom || { a: 0.5, b: L + 0.5 };
     this.axis = { left: left, W: W, a: z.a, b: z.b, L: L };
     var rx = function (r) { return left + (r - 0.5 - (z.a - 0.5)) / (z.b - z.a) * W; }, ppr = W / (z.b - z.a);
-    var top = 205, base = Math.max(top + 200, Math.min(g.cH - 330, top + 230)), over = null, bestD = 7;
+    // vertical layout from the height available: the page (HTML bars over the top 110 px) or the
+    // Atrium's window (1000 x 500, nothing over it). lolH is the lollipop zone above the bar.
+    var inPanel = view.mode === 'atrium', T0 = inPanel ? 12 : 118;
+    var lolH = Math.max(110, Math.min(210, g.cH - (T0 + 62) - 250)), top = T0 + 62, base = top + lolH, over = null, bestD = 7;
     if (g.MOUSE_PRESSED && g.DX_MOUSE && g.mY > top - 20 && g.mY < base + 80) this.setZoom(z.a - g.DX_MOUSE / ppr, z.b - g.DX_MOUSE / ppr);
     ctx.save(); ctx.beginPath(); ctx.rect(left - 4, 0, W + 8, g.cH); ctx.clip();
 
     // ClinVar P/LP lollipops (by residue)
     var known = this.clinvarFor(gene), maxN = known.reduce(function (m, k) { return Math.max(m, k.n); }, 1);
     known.forEach(function (k) {
-      var xx = rx(k.pos), h = 12 + 90 * Math.log(1 + k.n) / Math.log(1 + maxN);
+      var xx = rx(k.pos), h = 10 + lolH * 0.42 * Math.log(1 + k.n) / Math.log(1 + maxN);
       ctx.strokeStyle = 'rgba(255,255,255,0.25)'; ctx.lineWidth = 1;
       ctx.beginPath(); ctx.moveTo(xx, base - 12); ctx.lineTo(xx, base - 12 - h); ctx.stroke();
       ctx.fillStyle = KIND_COLORS[k.kind]; ctx.beginPath(); ctx.arc(xx, base - 12 - h, 1.5 + Math.sqrt(k.n), 0, Math.PI * 2); ctx.fill();
@@ -196,10 +235,10 @@
       if (dd < bestD) { bestD = dd; over = ['residue ' + k.pos + ': ' + k.n + ' ClinVar P/LP ' + k.kind + ' variant' + (k.n > 1 ? 's' : ''), k.names.join(', ')]; }
     });
     // the sample's coding variants, by consequence (diamonds above the ClinVar stems)
-    if (x.tx && !x.cds) { g.setText('rgba(255,255,255,0.45)', 11, 'Helvetica, Arial, sans-serif', 'left', 'top'); g.fText(x.cdsError || 'Reading the coding sequence from Ensembl to place this sample\'s variants...', left, 186); }
+    if (x.tx && !x.cds) { g.setText('rgba(255,255,255,0.45)', 11, 'Helvetica, Arial, sans-serif', 'left', 'top'); g.fText(x.cdsError || 'Reading the coding sequence from Ensembl to place this sample\'s variants...', left, T0 + 54); }
     var sv = this.sampleVariants(gene), coding = sv.filter(function (v) { return v.cq.residue; });
     coding.forEach(function (v, i) {
-      var xx = rx(v.cq.residue), yy = base - 135 - (i % 3) * 12, col = CONS_COL[v.cq.kind] || 'rgb(200,200,200)';
+      var xx = rx(v.cq.residue), yy = base - lolH * 0.64 - (i % 3) * 11, col = CONS_COL[v.cq.kind] || 'rgb(200,200,200)';
       ctx.strokeStyle = col; ctx.lineWidth = v.cq.kind === 'synonymous' ? 1 : 2;
       ctx.beginPath(); ctx.moveTo(xx, base - 12); ctx.lineTo(xx, yy); ctx.stroke();
       ctx.fillStyle = col; ctx.beginPath(); ctx.moveTo(xx, yy - 6); ctx.lineTo(xx + 5, yy); ctx.lineTo(xx, yy + 6); ctx.lineTo(xx - 5, yy); ctx.closePath(); ctx.fill();
@@ -217,7 +256,7 @@
       if (String(f.gene).split(/[;,]/).indexOf(gene) < 0) return;
       var pc = proteinChange(f.variant_name);
       if (!pc) return;
-      var xx = rx(pc.pos), yy = base - 190;
+      var xx = rx(pc.pos), yy = base - lolH * 0.9;
       ctx.strokeStyle = 'rgb(255,70,70)'; ctx.lineWidth = 2;
       ctx.beginPath(); ctx.moveTo(xx, base - 12); ctx.lineTo(xx, yy); ctx.stroke();
       ctx.fillStyle = 'rgb(255,70,70)'; ctx.beginPath(); ctx.arc(xx, yy, 7, 0, Math.PI * 2); ctx.fill();
@@ -271,7 +310,7 @@
     ctx.restore();
 
     // the gene model (genome coordinates), joined to the exons above
-    var tx = x.tx, gy = y + 46, gTop = gy;
+    var tx = x.tx, gy = y + 36, endY = gy + 24;
     if (tx && x.build === (view.data && view.data.build)) {
       var g0 = tx.start - 2000, g1 = tx.end + 1000, gx = function (q) { return left + (q - g0) / (g1 - g0) * W; };
       if (tx.strand < 0) { g0 = tx.start - 1000; g1 = tx.end + 2000; }
@@ -311,17 +350,18 @@
       }
       var me = G.app.methyl;
       if (me && d.methyl === me && ckey) { // methylation along the gene and its promoter
-        ctx.strokeStyle = 'rgba(255,255,255,0.15)'; ctx.strokeRect(left, sy, W, 30);
-        ctx.beginPath(); var started = false;
+        var mh = inPanel ? 20 : 30;
+        ctx.strokeStyle = 'rgba(255,255,255,0.15)'; ctx.strokeRect(left, sy, W, mh);
         for (var px2 = left; px2 < right; px2 += 3) {
           var q1 = g0 + (px2 - left) / W * (g1 - g0), lv = me.level(ckey, Math.round(q1), Math.round(q1 + (g1 - g0) / W * 3));
-          if (lv.frac === null) { started = false; continue; }
-          var yy2 = sy + 30 - 30 * lv.frac; ctx.fillStyle = G.methylation.Methylation.color(lv.frac); ctx.fillRect(px2, yy2 - 1, 3, 2);
+          if (lv.frac === null) continue;
+          var yy2 = sy + mh - mh * lv.frac; ctx.fillStyle = G.methylation.Methylation.color(lv.frac); ctx.fillRect(px2, yy2 - 1, 3, 2);
         }
-        g.setText('rgba(255,255,255,0.5)', 10, 'Helvetica, Arial, sans-serif', 'right', 'middle'); g.fText('methylation', left - 6, sy + 15);
-        if (g.mY >= sy && g.mY < sy + 30 && g.mX >= left && g.mX < right) { var q2 = Math.round(g0 + (g.mX - left) / W * (g1 - g0)), lv2 = me.level(ckey, q2 - 500, q2 + 500); over = ['methylation around ' + tx.chrom + ':' + q2.toLocaleString() + ': ' + (lv2.frac === null ? 'too few calls' : Math.round(100 * lv2.frac) + '%')]; }
-        sy += 36;
+        g.setText('rgba(255,255,255,0.5)', 10, 'Helvetica, Arial, sans-serif', 'right', 'middle'); g.fText('methylation', left - 6, sy + mh / 2);
+        if (g.mY >= sy && g.mY < sy + mh && g.mX >= left && g.mX < right) { var q2 = Math.round(g0 + (g.mX - left) / W * (g1 - g0)), lv2 = me.level(ckey, q2 - 500, q2 + 500); over = ['methylation around ' + tx.chrom + ':' + q2.toLocaleString() + ': ' + (lv2.frac === null ? 'too few calls' : Math.round(100 * lv2.frac) + '%')]; }
+        sy += mh + 6;
       }
+      endY = sy;
     } else {
       g.setText('rgba(255,255,255,0.45)', 11, 'Helvetica, Arial, sans-serif', 'left', 'top');
       g.fText(x.txError ? 'Gene model: ' + x.txError : view.data && (view.data.build === 'GRCh38' || view.data.build === 'GRCh37') ? 'Loading the gene model from Ensembl...' : 'The gene model needs a GRCh37 or GRCh38 genome.', left, gy);
@@ -329,19 +369,21 @@
 
     // title, buttons, key
     g.setText('white', 16, 'Helvetica, Arial, sans-serif', 'left', 'top');
-    g.fText(gene + '  ' + (p.name || ''), left, 128);
+    g.fText(gene + '  ' + (p.name || ''), left, T0);
     g.setText('rgba(255,255,255,0.55)', 11, 'Helvetica, Arial, sans-serif', 'left', 'top');
-    g.fText('UniProt ' + p.acc + ', ' + L + ' aa. Stems: ClinVar P/LP by residue (dot colour: missense blue, nonsense orange, frameshift pink). Diamonds: this sample\'s coding variants (' + coding.length + '), red: findings.', left, 150);
-    g.fText('Wheel to zoom (letters, then codons, as you go in), drag to pan, double click to reset.' + (findingGenes.length > 1 ? '  Other finding genes: ' + findingGenes.filter(function (q) { return q !== gene; }).slice(0, 8).join(', ') : ''), left, 166);
+    g.fText('UniProt ' + p.acc + ', ' + L + ' aa. Stems: ClinVar P/LP by residue (dot colour: missense blue, nonsense orange, frameshift pink). Diamonds: this sample\'s coding variants (' + coding.length + '), red: findings.', left, T0 + 22);
+    g.fText('Wheel to zoom (letters, then codons, as you go in), drag to pan, double click to reset.' + (findingGenes.length > 1 ? '  Other finding genes: ' + findingGenes.filter(function (q) { return q !== gene; }).slice(0, 8).join(', ') : ''), left, T0 + 38);
+    // the 3D buttons, under the gene model where the eye ends up (also easier to reach in VR)
+    var by = Math.min(g.cH - 30, endY + 8);
     var btn = function (label, bx, fn) {
-      var w2 = g.getTextW(label) + 22; ctx.fillStyle = 'rgba(90,210,190,0.18)'; ctx.fillRect(bx - w2, 124, w2, 24); ctx.strokeStyle = 'rgb(90,210,190)'; ctx.strokeRect(bx - w2, 124, w2, 24);
-      g.setText('white', 12, 'Helvetica, Arial, sans-serif', 'center', 'middle'); g.fText(label, bx - w2 / 2, 136);
-      if (g.mX > bx - w2 && g.mX < bx && g.mY > 124 && g.mY < 148) { g.setCursor('pointer'); if (g.MOUSE_UP_FAST) fn(); }
-      return bx - w2 - 10;
+      g.setText('white', 13, 'Helvetica, Arial, sans-serif', 'center', 'middle');
+      var w2 = g.getTextW(label) + 26; ctx.fillStyle = 'rgba(90,210,190,0.18)'; ctx.fillRect(bx, by, w2, 26); ctx.strokeStyle = 'rgb(90,210,190)'; ctx.lineWidth = 1; ctx.strokeRect(bx, by, w2, 26);
+      g.setText('white', 13, 'Helvetica, Arial, sans-serif', 'center', 'middle'); g.fText(label, bx + w2 / 2, by + 13);
+      if (g.mX > bx && g.mX < bx + w2 && g.mY > by && g.mY < by + 26) { g.setCursor('pointer'); if (g.MOUSE_UP_FAST) fn(); }
+      return bx + w2 + 10;
     };
-    g.setText('white', 12, 'Helvetica, Arial, sans-serif', 'center', 'middle');
-    var bx2 = btn('Protein room', right, function () { G.app.openProtein3D(gene, true); });
-    btn('3D: normal and variant side by side', bx2, function () { G.app.openProtein3D(gene, false); });
+    var bx2 = btn('3D protein: normal and variant side by side', left, function () { G.app.openProtein3D(gene, false); });
+    btn('Protein room', bx2, function () { G.app.openProtein3D(gene, true); });
     if (over) view.drawTooltip(g, over);
   };
 
