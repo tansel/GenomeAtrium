@@ -513,7 +513,7 @@
     { row: 1, k: 'whole', t: 'Whole protein' }, { row: 1, k: 'prev', t: '< Variant' }, { row: 1, k: 'next', t: 'Variant >' },
     { row: 1, k: 'close', t: 'Close' },
     { row: 2, k: 'layout:side', t: 'Side by side' }, { row: 2, k: 'layout:overlay', t: 'Overlay' },
-    { row: 2, k: 'show:normal', t: 'Normal' }, { row: 2, k: 'show:variant', t: 'Variant' }, { row: 2, k: 'show:both', t: 'Both' }, { row: 2, k: 'room', t: 'Protein room' }
+    { row: 2, k: 'show:normal', t: 'Normal' }, { row: 2, k: 'show:variant', t: 'Variant' }, { row: 2, k: 'show:both', t: 'Both' }, { row: 2, k: 'room', t: 'Back to Protein view' }
   ];
   (function layout() {
     var x = [24, 24, 24];
@@ -575,7 +575,7 @@
       var kv = b.k.split(':'), on = kv[1] && self[{ style: 'style', color: 'colorBy', show: 'show', layout: 'layout' }[kv[0]]] === kv[1];
       ctx.fillStyle = on ? '#5ad2be' : b.k === 'close' ? 'rgba(120,40,40,0.9)' : 'rgba(40,44,58,0.95)'; ctx.fillRect(b.x, b.y, b.w, b.h);
       ctx.fillStyle = on ? '#101014' : '#fff'; ctx.font = (on ? 'bold ' : '') + '25px Helvetica, Arial, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      ctx.fillText(b.t, b.x + b.w / 2, b.y + b.h / 2); ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+      ctx.fillText(b.k === 'room' ? (self.atrium.where === 'protein' ? 'Back to ' + self.atrium.backLabel() : 'Protein room') : b.t, b.x + b.w / 2, b.y + b.h / 2); ctx.textAlign = 'left'; ctx.textBaseline = 'top';
     });
     this.cardTex.needsUpdate = true;
   };
@@ -591,7 +591,7 @@
     else if (kv[0] === 'color') { this.colorBy = kv[1]; if (kv[1] === 'am') this.loadAm(); this.recolor(); }
     else if (kv[0] === 'show') { this.show = kv[1]; this.applyShow(); }
     else if (kv[0] === 'layout') { this.layout = kv[1]; this.applyShow(); }
-    else if (b.k === 'room') { this.atrium.goPlace(this.atrium.where === 'protein' ? 'atrium' : 'protein'); return true; }
+    else if (b.k === 'room') { if (this.atrium.where === 'protein') this.atrium.back(); else this.atrium.goPlace('protein'); return true; }
     else if (b.k === 'whole') this.whole();
     else if (b.k === 'prev') this.step(-1);
     else if (b.k === 'next') this.step(1);

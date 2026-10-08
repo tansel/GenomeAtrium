@@ -385,8 +385,7 @@
       if (g.mX > bx && g.mX < bx + w2 && g.mY > by && g.mY < by + 26) { g.setCursor('pointer'); if (g.MOUSE_UP_FAST) fn(); }
       return bx + w2 + 10;
     };
-    var bx2 = btn('3D protein: normal and variant side by side', left, function () { G.app.openProtein3D(gene, false); });
-    btn('Protein room', bx2, function () { G.app.openProtein3D(gene, true); });
+    btn('3D protein: normal and variant, in its own room', left, function () { G.app.openProtein3D(gene); });
     if (over) view.drawTooltip(g, over);
   };
 

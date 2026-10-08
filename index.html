@@ -40,8 +40,8 @@
     #stop { display: none; }
     #info { max-height: calc(100vh - 80px); overflow-y: auto; }
     #clinvarNote { margin-top: 8px; }
-    #toggleInfo { cursor: pointer; display: flex; justify-content: space-between; align-items: baseline; }
-    #toggleMark { font-size: 11px; font-weight: normal; }
+    #toggleInfo { cursor: pointer; display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+    #toggleMark { font-size: 11px; font-weight: normal; padding: 2px 8px; white-space: nowrap; }
     #findings { margin-top: 8px; }
     .fhead { color: #fff; font-weight: 600; margin-bottom: 4px; display: flex; gap: 6px; align-items: center; }
     .fhead button { padding: 1px 6px; font-size: 11px; margin-left: auto; }
@@ -157,7 +157,7 @@
   <div id="drop"></div>
 
   <div id="info" class="panel">
-    <h1 id="toggleInfo" title="Minimise or open this panel (key: i)">GenomeAtrium <span class="dim" id="toggleMark">hide panel</span></h1>
+    <h1 id="toggleInfo" title="Minimise or open this panel (key: i)">GenomeAtrium <button type="button" id="toggleMark">hide panel</button></h1>
     <div id="summary" class="dim">Open or drop a VCF, gVCF or BAM file.</div>
     <div id="legend"></div>
     <div id="clinvarNote" class="dim"></div>
@@ -239,42 +239,42 @@
   <div id="help" class="panel">wheel zoom &middot; drag pan &middot; click a chromosome to open it &middot; double click resets</div>
 
   <script src="moebio_framework/dist/moebio_framework.js"></script>
-  <script src="src/net.js?v=20261006213906"></script>
-  <script src="src/bgzf.js?v=20261006213906"></script>
-  <script src="src/genome.js?v=20261006213906"></script>
-  <script src="src/vcf.js?v=20261006213906"></script>
-  <script src="src/bam.js?v=20261006213906"></script>
-  <script src="src/clinvar.js?v=20261006213906"></script>
-  <script src="src/windows.js?v=20261006213906"></script>
-  <script src="src/regulatory.js?v=20261006213906"></script>
-  <script src="src/samples.js?v=20261006213906"></script>
-  <script src="src/gwas.js?v=20261006213906"></script>
-  <script src="src/pathways.js?v=20261006213906"></script>
-  <script src="src/mito.js?v=20261006213906"></script>
-  <script src="src/gnomad.js?v=20261006213906"></script>
-  <script src="src/view.js?v=20261006213906"></script>
-  <script src="src/navigation.js?v=20261006213906"></script>
-  <script src="src/fasta.js?v=20261006213906"></script>
-  <script src="src/reads.js?v=20261006213906"></script>
-  <script src="src/pileup.js?v=20261006213906"></script>
-  <script src="src/tracks.js?v=20261006213906"></script>
-  <script src="src/hilbert.js?v=20261006213906"></script>
-  <script src="src/circos.js?v=20261006213906"></script>
-  <script src="src/genecentric.js?v=20261006213906"></script>
-  <script src="src/transcript.js?v=20261006213906"></script>
-  <script src="src/protein.js?v=20261006213906"></script>
-  <script src="src/hic.js?v=20261006213906"></script>
-  <script src="src/roh.js?v=20261006213906"></script>
-  <script src="src/pgx.js?v=20261006213906"></script>
-  <script src="src/people.js?v=20261006213906"></script>
-  <script src="src/prs.js?v=20261006213906"></script>
-  <script src="src/methylation.js?v=20261006213906"></script>
-  <script src="src/panels.js?v=20261006213906"></script>
-  <script src="src/xr.js?v=20261006213906"></script>
-  <script src="src/structure.js?v=20261006213906"></script>
-  <script src="src/molecule.js?v=20261006213906"></script>
-  <script src="src/app.js?v=20261006213906"></script>
-  <script src="src/landscape.js?v=20261006213906"></script>
-  <script src="src/matrix.js?v=20261006213906"></script>
+  <script src="src/net.js?v=20261008134147"></script>
+  <script src="src/bgzf.js?v=20261008134147"></script>
+  <script src="src/genome.js?v=20261008134147"></script>
+  <script src="src/vcf.js?v=20261008134147"></script>
+  <script src="src/bam.js?v=20261008134147"></script>
+  <script src="src/clinvar.js?v=20261008134147"></script>
+  <script src="src/windows.js?v=20261008134147"></script>
+  <script src="src/regulatory.js?v=20261008134147"></script>
+  <script src="src/samples.js?v=20261008134147"></script>
+  <script src="src/gwas.js?v=20261008134147"></script>
+  <script src="src/pathways.js?v=20261008134147"></script>
+  <script src="src/mito.js?v=20261008134147"></script>
+  <script src="src/gnomad.js?v=20261008134147"></script>
+  <script src="src/view.js?v=20261008134147"></script>
+  <script src="src/navigation.js?v=20261008134147"></script>
+  <script src="src/fasta.js?v=20261008134147"></script>
+  <script src="src/reads.js?v=20261008134147"></script>
+  <script src="src/pileup.js?v=20261008134147"></script>
+  <script src="src/tracks.js?v=20261008134147"></script>
+  <script src="src/hilbert.js?v=20261008134147"></script>
+  <script src="src/circos.js?v=20261008134147"></script>
+  <script src="src/genecentric.js?v=20261008134147"></script>
+  <script src="src/transcript.js?v=20261008134147"></script>
+  <script src="src/protein.js?v=20261008134147"></script>
+  <script src="src/hic.js?v=20261008134147"></script>
+  <script src="src/roh.js?v=20261008134147"></script>
+  <script src="src/pgx.js?v=20261008134147"></script>
+  <script src="src/people.js?v=20261008134147"></script>
+  <script src="src/prs.js?v=20261008134147"></script>
+  <script src="src/methylation.js?v=20261008134147"></script>
+  <script src="src/panels.js?v=20261008134147"></script>
+  <script src="src/xr.js?v=20261008134147"></script>
+  <script src="src/structure.js?v=20261008134147"></script>
+  <script src="src/molecule.js?v=20261008134147"></script>
+  <script src="src/app.js?v=20261008134147"></script>
+  <script src="src/landscape.js?v=20261008134147"></script>
+  <script src="src/matrix.js?v=20261008134147"></script>
 </body>
 </html>

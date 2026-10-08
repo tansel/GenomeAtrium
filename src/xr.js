@@ -624,7 +624,7 @@
       }
       if (gp.buttons[4] && gp.buttons[4].pressed) self.resetPose();          // A or X
       if (gp.buttons[5]) { // B or Y: close the window; with none open, leave the Landscape room
-        if (gp.buttons[5].pressed && !self.backWasDown) { if (self.panel) self.closePanel(); else if (self.where !== 'atrium') self.goPlace('atrium'); }
+        if (gp.buttons[5].pressed && !self.backWasDown) { if (self.panel) self.closePanel(); else if (self.where === 'protein') self.back(); else if (self.where !== 'atrium') self.goPlace('atrium'); }
         self.backWasDown = gp.buttons[5].pressed;
       }
     });
@@ -908,8 +908,7 @@
     if (it.region && it.region.gene) { // a finding or a panel gene: offer the protein too
       var self = this, gene = String(it.region.gene).split(/[;,]/)[0], region = it.region;
       this.askChoice(hit.point, gene, [
-        { label: '3D protein, normal and variant side by side', fn: function () { self.showProtein(gene, { focus: true }); } },
-        { label: 'Protein room: step inside ' + gene, fn: function () { self.showProtein(gene, { focus: true }).then(function () { self.goPlace('protein'); }); } },
+        { label: '3D protein, normal and variant, in its own room', fn: function () { G.app.focusGene(gene, false); self.openProtein(gene, { kind: 'atrium', panel: null }); } },
         { label: 'Genome window (Arcs and the other views)', fn: function () { self.openPanel(region); } }]);
       return;
     }
@@ -924,23 +923,39 @@
     this.sources().forEach(function (src) { var t = self.tabHit(src); if (t >= 0) tab = t; });
     if (tab !== this.panel.hoverTab) { this.panel.hoverTab = tab; this.drawTabs(); }
     if (hp) this.panelActive();
-    if (G.app.view.panelMode === 'protein') this.followProtein();
     // Uploading the 2000 x 1000 canvas costs frame time: 12 times a second while in use,
     // once a second otherwise (late results such as a protein load still show up).
     var now = performance.now(), every = now < (this.panel.activeUntil || 0) ? 80 : 1000;
     if (this.panel.screen.visible && now - this.panel.last > every) { this.panel.tex.needsUpdate = true; this.panel.last = now; }
   };
-  // The Protein tab's protein, in 3D beside the window: always the gene the tab shows
-  // (ProteinView.currentGene), started once per gene change.
-  Atrium.prototype.followProtein = function () {
-    var pv = G.app.proteinView;
-    if (!pv) return;
-    var gene = pv.currentGene();
-    if (!gene || gene === this.molWant) return;
-    this.showProtein(gene);
+  // 3D proteins open on their own, in the Protein room, never beside you in the Atrium.
+  // origin is where Back returns to: { kind: 'atrium', panel: the window's tab or null } or
+  // { kind: 'page', mode: a 2D view of the page }. Defaults to the Atrium as it is now.
+  var VIEW_NAMES = { arcs: 'Arcs', tracks: 'Tracks', circos: 'Circos', hilbert: 'Hilbert', matrix: 'Matrix', gene: 'Gene view', protein: 'Protein view',
+    hic: 'Hi-C', pathways: 'Pathways', mito: 'Mito', '3d': 'Landscape' };
+  Atrium.prototype.snapshot = function () {
+    return { kind: 'atrium', panel: this.panel ? (this.panel.portalOn ? '3d' : G.app.view.panelMode) : null };
+  };
+  Atrium.prototype.openProtein = function (gene, origin) {
+    if (origin || this.where !== 'protein') this.protOrigin = origin || this.snapshot(); // an explicit origin always wins
+    if (!this.mol) { this.mol = new G.Molecule(this); this.dolly.add(this.mol.root); }
+    if (this.where !== 'protein') this.goPlace('protein');
+    return this.showProtein(gene);
+  };
+  Atrium.prototype.backLabel = function () {
+    var o = this.protOrigin;
+    return !o || o.kind === 'atrium' ? 'Atrium' : VIEW_NAMES[o.mode] || o.mode;
+  };
+  // Leave the Protein room for where it was opened from.
+  Atrium.prototype.back = function () {
+    var o = this.protOrigin || { kind: 'atrium' };
+    this.protOrigin = null;
+    this.goPlace('atrium');
+    if (o.kind === 'page') { G.app.setMode(o.mode); return; }
+    if (o.panel) { this.openPanel(); this.setPanelView(o.panel); }
   };
 
-  // The protein of a gene in 3D, held near the viewer. Always the same steps: the normal
+  // The protein of a gene in 3D (in the Protein room, see openProtein). Always the same steps: the normal
   // protein (AlphaFold model); then, when the sample has a protein-changing variant that the
   // model can show, normal and variant side by side at that variant; otherwise the card says
   // why there is no variant copy. Resolves once it is built.
@@ -949,10 +964,8 @@
     var pv = G.app.proteinView;
     gene = String(gene).split(/[;,]/)[0];
     this.molWant = gene;
-    if (pv.currentGene() !== gene) G.app.focusGene(gene, false); // the Protein tab and this stay on one gene
     if (!this.mol) { this.mol = new G.Molecule(this); this.dolly.add(this.mol.root); }
     var mol = this.mol;
-    if (this.where !== 'protein' && (!opts.keepPlace || mol.gene !== gene)) this.placeMolecule();
     if (mol.gene === gene && mol.model && !mol.status) { mol.showSample(); return; }
     mol.gene = gene; mol.status = 'Looking up ' + gene + ' in UniProt...'; mol.drawCard();
     var p;
@@ -961,27 +974,17 @@
     if (mol.acc !== p.acc || !mol.model) await mol.load(gene, p, pv.extra[gene]); // the normal protein, at once
     if (this.molWant !== gene || !mol.model) return; // no AlphaFold model: the card says why
     var x = pv.extra[gene] || {};
+    mol.showSample(); // a finding is placed at once; other variants need the transcript
     if (!x.cds && !x.cdsError && !x.txError && (G.app.view.data || {}).build in { GRCh38: 1, GRCh37: 1 }) {
-      mol.sampleNote = 'Placing this sample\'s variants: reading the ' + gene + ' transcript from Ensembl...'; mol.drawCard();
+      var shown = mol.cur >= 0;
+      mol.sampleNote = 'Placing this sample\'s other variants: reading the ' + gene + ' transcript from Ensembl...'; mol.drawCard();
       x = await pv.ready(gene);
       if (this.molWant !== gene || !mol.model) return;
-      mol.setExtra(x); // the variant copy, once the transcript is read
+      var keep = shown && mol.cur >= 0 ? mol.variants[mol.cur] : null;
+      mol.setExtra(x); // all of the sample's variants, once the transcript is read
+      var i = keep ? mol.variants.findIndex(function (v) { return v.pos === keep.pos && v.short === keep.short; }) : -1;
+      if (i >= 0) { mol.focusVariant(i); } else mol.showSample(); // stay where the viewer is, if it is still there
     }
-    mol.showSample();
-  };
-
-  // Held in front of the viewer, below eye level and to the right, so it does not hide the window.
-  Atrium.prototype.placeMolecule = function () {
-    var T = G.THREE, root = this.mol.root;
-    if (root.parent !== this.dolly) this.dolly.attach(root);
-    var head = this.camera.position.clone(), dir = new T.Vector3(0, 0, -1).applyQuaternion(this.camera.quaternion);
-    dir.y = 0; dir.normalize();
-    var right = new T.Vector3(-dir.z, 0, dir.x);
-    root.position.copy(head).addScaledVector(dir, 0.8).addScaledVector(right, 0.35);
-    root.position.y = head.y - 0.3;
-    root.quaternion.identity(); root.lookAt(this.dolly.localToWorld(head.clone()));
-    root.scale.setScalar(1);
-    this.mol.cardHome();
   };
 
   // A small card of choices by a picked object: [{label, fn}], plus Cancel.
@@ -1067,7 +1070,7 @@
     var leaving = this.where;
     this.where = where;
     this.showTip(null);
-    if (where === 'protein') this.enterProteinRoom(); else if (leaving === 'protein' && this.mol) this.placeMolecule();
+    if (where === 'protein') this.enterProteinRoom(); else if (leaving === 'protein') { this.closeMolecule(); this.molWant = null; } // the protein stays in its room
     if (this.renderer.xr.isPresenting) this.resetPose();
     else { // desktop: move the orbit camera and its target
       if (where === 'room') { this.camera.position.set(0, 2.2, ROOM_Z + 6.5); this.controls.target.set(0, 1.5, ROOM_Z); }
@@ -1075,7 +1078,9 @@
       else this.homeView();
     }
     var back = document.getElementById('placeBack'); // the desktop's way back from a room
-    if (back) back.hidden = where === 'atrium';
+    if (back) { back.hidden = where === 'atrium'; back.textContent = 'Back to ' + (where === 'protein' ? this.backLabel() : 'the Atrium') + ' (Esc)'; }
+    var filt = document.getElementById('atriumFilters'); // the Atrium's filters mean nothing in the Protein room
+    if (filt && G.app.view.mode === 'atrium') filt.hidden = where === 'protein';
     var h = document.getElementById('help');
     if (h && G.app.view.mode === 'atrium') h.textContent = where === 'room'
       ? 'Landscape room: every dot is a genome window, placed by PCA; threads join neighbours on a chromosome. Click a dot to open it. The sign (or B/Y in VR) goes back.'
@@ -1086,6 +1091,7 @@
   // Esc on the desktop: close a choice card, else leave a room, else close the window.
   Atrium.prototype.escape = function () {
     if (this.choice) this.closeChoice();
+    else if (this.where === 'protein') this.back();
     else if (this.where !== 'atrium') this.goPlace('atrium');
     else if (this.panel) this.closePanel();
   };

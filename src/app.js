@@ -94,7 +94,7 @@
       if (G.matrix) G.matrix.setData(data);
       G.app.hilbert.setData(data); G.app.circos.setData(data); renderHilbertLayers();
       describe(data);
-      setMode(landingView(data)); // the Atrium first, where it can be shown
+      setMode(landingView(data)); // Arcs on the whole genome on a desktop, the Atrium in a headset
     } catch (err) {
       console.error(err);
       view.setStatus(null);
@@ -104,10 +104,16 @@
     }
   }
 
-  // The first view for a newly loaded genome: ?view=<mode> if given, else the Atrium
-  // (the central room every view opens from), else Arcs when there is no genome to
-  // place (an unaligned BAM) or no WebGL.
+  // The first view for a newly loaded genome (D54): ?view=<mode> if given; else, in a headset
+  // browser that can enter VR, the Atrium (the room every view opens from); else, on a
+  // desktop, Arcs on the whole genome. Arcs also when there is no genome to place (an
+  // unaligned BAM) or no WebGL. A headset is recognised by its browser or by WebXR saying it
+  // can start an immersive session (asked once at start; unknown counts as a desktop).
   var VIEWS = ['arcs', 'tracks', 'circos', 'hilbert', 'gene', 'protein', 'hic', 'pathways', 'mito', 'atrium', 'matrix', '3d'];
+  var immersive = /OculusBrowser|Quest|Pico|Wolvic/i.test(navigator.userAgent);
+  if (!immersive && navigator.xr && navigator.xr.isSessionSupported) {
+    navigator.xr.isSessionSupported('immersive-vr').then(function (ok) { if (ok) immersive = true; }, function () { /* desktop */ });
+  }
   function hasWebGL() {
     try { var c = document.createElement('canvas'); return !!(c.getContext('webgl2') || c.getContext('webgl')); } catch (e) { return false; }
   }
@@ -116,7 +122,7 @@
     if (asked === 'arena') asked = 'atrium';
     if (asked && VIEWS.indexOf(asked) >= 0) return asked;
     var placeable = d && d.genome && d.genome.contigs.length && !(d.format === 'bam' && !d.stats.aligned);
-    return placeable && hasWebGL() ? 'atrium' : 'arcs';
+    return placeable && immersive && hasWebGL() ? 'atrium' : 'arcs';
   }
 
   function similarText() {
@@ -1172,7 +1178,7 @@
     if (e.key === 'i') setPanelMin(!$('info').classList.contains('min'));
     if (e.key === 'Escape' && view.mode === 'atrium' && atrium) atrium.escape();
   });
-  $('placeBack').onclick = function () { if (atrium) atrium.goPlace('atrium'); };
+  $('placeBack').onclick = function () { if (atrium) atrium.escape(); };
   $('open').onclick = function () { $('file').click(); };
   $('file').onchange = function (e) { loadMany(Array.prototype.slice.call(e.target.files)); e.target.value = ''; };
   $('addPerson').onclick = function () { $('fileAdd').click(); };
@@ -1215,16 +1221,16 @@
   G.app.circos = new G.Circos();
   G.app.geneView = new G.GeneView();
   G.app.proteinView = new G.ProteinView(); G.app.proteinView.install(view.g.canvas);
-  // The Protein view's 3D buttons: the gene's AlphaFold model in the Atrium, zoomed to the
-  // sample's variant beside the normal protein, or in the Protein room.
-  G.app.openProtein3D = async function (gene, room) {
+  // The 3D protein button: the gene's AlphaFold model on its own, in the Protein room, normal
+  // and variant side by side at the sample's variant. Back returns to the view it came from
+  // (a 2D view of the page, or the Atrium with its window on the same tab).
+  G.app.openProtein3D = async function (gene) {
+    var origin = view.mode === 'atrium' ? (atrium ? atrium.snapshot() : null) : { kind: 'page', mode: view.mode };
     focusGene(gene, false);
-    if (view.mode !== 'atrium') setMode('atrium');
+    if (view.mode !== 'atrium') { skipIntro = true; setMode('atrium'); }
     for (var i = 0; i < 300 && !(atrium && atrium.group); i++) await new Promise(function (r) { setTimeout(r, 50); });
     if (!atrium || !atrium.group) return;
-    await atrium.showProtein(gene, { focus: true });
-    if (room) atrium.goPlace('protein');
-    $('placeBack').hidden = atrium.where === 'atrium';
+    await atrium.openProtein(gene, origin);
   };
   function renderHilbertLayers() {
     var h = G.app.hilbert;
@@ -1313,7 +1319,7 @@
   }
 
   // Atrium (WebXR), created on first use.
-  var atrium = null;
+  var atrium = null, skipIntro = false;
   async function enterAtrium() {
     if (!current || !current.genome || !current.genome.contigs.length) return;
     $('xr').hidden = false; document.body.classList.add('atriumMode');
@@ -1324,7 +1330,8 @@
       await atrium.open(current);
       $('help').innerHTML = (atrium.xrSupported ? 'Enter VR with the button below; ' : '') +
         'drag to orbit, wheel to zoom, hover to read an object, click it to open a window with view tabs (Landscape is a portal into the Landscape room)';
-      atriumIntro();
+      if (!skipIntro) atriumIntro(); // not when the Atrium opened only to show a protein
+      skipIntro = false;
       $('placeBack').hidden = atrium.where === 'atrium'; // back in a room: offer the way out again
     } catch (err) { // no WebGL, or three.js could not load: Arcs instead, and say why
       console.error(err);
@@ -1467,19 +1474,57 @@
   var DEMO = { hg002trio: ['hg002.wf_snp.vcf.gz', 'hg003.wf_snp.vcf.gz', 'hg004.wf_snp.vcf.gz'].map(function (f) { return 'data/demo/hg002/' + f; }).join(','),
     hg002: ['hg002.wf_snp.vcf.gz', 'hg002.wf_sv.vcf.gz', 'hg002.hap1.methyl.1kb.cov.gz', 'hg002.hap2.methyl.1kb.cov.gz'].map(function (f) { return 'data/demo/hg002/' + f; }).join(',') };
   if (!q && DEMO[params.get('demo')]) q = DEMO[params.get('demo')];
+  // A file named in ?url= (also the Asclepius hand-off through the workbench). A refused request,
+  // or a web page where a file was expected (a sign-in page answers 200), is reported with its
+  // reason and never read as genome data. It rejects, so the files after it are not read either.
+  function fetchHandoff(u) {
+    var name = decodeURIComponent(u.split('/').pop());
+    // Both the wait and a failure are said in the panel, and a folded panel unfolds for them
+    // (without changing the remembered choice), so a link never looks idle.
+    // A file after the genome (its findings) adds to the genome's summary instead of replacing it.
+    var show = function (html) {
+      if (current) $('summary').insertAdjacentHTML('beforeend', '<br>' + html); else $('summary').innerHTML = html;
+      $('info').classList.remove('min'); $('toggleMark').textContent = 'hide panel';
+    };
+    var fail = function (why) {
+      show('<span class="warn">Could not open ' + esc(name) + ': ' + esc(why) + '</span>');
+      throw new Error(why);
+    };
+    if (!current) show('<span class="file">' + esc(name) + '</span><br><span class="dim">fetching from ' + esc(new URL(u, location.href).host) + '...</span>');
+    // no-store: always the file as it is now (Asclepius rewrites its findings after every scan,
+    // and a copy cached before a server fix would still be the broken one).
+    return fetch(u, { cache: 'no-store' }).then(function (r) {
+      if (r.status === 401 || r.status === 403) fail('the server refused it (HTTP ' + r.status + '). In the workbench, sign in: genome files open only for the project\'s owner or an admin.');
+      if (!r.ok) fail('HTTP ' + r.status + ' from ' + new URL(u, location.href).host + '.');
+      if (/text\/html/i.test(r.headers.get('content-type') || '') && !/\.html?$/i.test(name)) fail('the server sent a web page instead of the file (a sign-in page?). Sign in to the workbench and open the link again.');
+      return r.blob();
+    }, function (err) { fail('the request failed (' + err.message + ').'); }).then(function (b) {
+      // A server that labels a .gz file "Content-Encoding: gzip" makes the browser unpack it on
+      // the way in, and a bgzipped file is many gzip members, of which a browser may decode only
+      // the first (the header): the genome would open with no variants. Refuse it instead (S9).
+      if (!/\.(gz|bgz)$/i.test(name)) return b;
+      return b.slice(0, 2).arrayBuffer().then(function (head) {
+        var h = new Uint8Array(head);
+        if (h[0] !== 0x1f || h[1] !== 0x8b) fail('the server sent it gzip-encoded, so the browser unpacked it on arrival and may have cut it short. Ask the server to send .gz files as application/gzip without Content-Encoding.');
+        return b;
+      });
+    });
+  }
   if (!q) fetch('data/demo/hg002/hg002.wf_snp.vcf.gz', { method: 'HEAD' }).then(function (r) {
     if (r.ok && !current) $('summary').innerHTML += '<br>Or open the <a href="?demo=hg002">public HG002 demo</a> (Genome in a Bottle, nanopore 60x: variants, SVs, methylation per haplotype).';
   }, function () { /* no demo data here */ });
   if (q) {
     var files = q.split(',');
     files.reduce(function (prev, u) {
-      return prev.then(function () { return fetch(u); }).then(function (r) { return r.blob(); })
+      return prev.then(function () { return fetchHandoff(u); })
         .then(function (b) { var f = new File([b], u.split('/').pop()); return isPersonFile(f) && current ? addPerson(f) : load(f); });
     }, Promise.resolve()).then(function () {
       var readsUrl = params.get('reads') || DEMO_READS[params.get('demo')];
       if (readsUrl && current) attachReads(G.reads.urlSource(readsUrl), G.reads.urlSource(readsUrl + '.bai'), readsUrl.split('/').pop());
       var roles = DEMO_ROLES[params.get('demo')];
       if (roles) { G.app.people.forEach(function (p) { if (roles[p.name]) p.role = roles[p.name]; }); renderPeople(); }
-    });
+      var at = /^([^:]+):(\d+)$/.exec(params.get('locus') || ''); // a finding link: open Arcs at its locus
+      if (at && current && current.genome && current.genome.get(at[1])) { setMode('arcs'); view.goTo(at[1], Math.max(1, +at[2] - 60), +at[2] + 60); }
+    }).catch(function () { /* fetchHandoff has said why in the panel; later files are not read */ });
   }
 })(globalThis.G = globalThis.G || {});
